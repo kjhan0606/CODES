@@ -336,6 +336,7 @@ class CODESApplication(tk.Tk):
         self.solar_wind = tk.BooleanVar(value=True)
         self.zonal_harmonics = tk.BooleanVar(value=True)
         self.large_asteroids = tk.BooleanVar(value=True)
+        self.jupiter_system = tk.BooleanVar(value=False)
         checks = (
             ("Full multi-body 1PN", self.relativity),
             ("Poynting-Robertson drag", self.pr_drag),
@@ -354,6 +355,11 @@ class CODESApplication(tk.Tk):
             text="16 large asteroids",
             variable=self.large_asteroids,
         ).grid(row=10, column=0, sticky="w", pady=(5, 0))
+        ttk.Checkbutton(
+            tab,
+            text="Resolved Jupiter system",
+            variable=self.jupiter_system,
+        ).grid(row=10, column=1, sticky="w", pady=(5, 0))
 
         self._action_button(
             tab,
@@ -693,6 +699,8 @@ class CODESApplication(tk.Tk):
                 command.append("--no-zonal-harmonics")
             if not self.large_asteroids.get():
                 command.append("--major-bodies-only")
+            if self.jupiter_system.get():
+                command.append("--jupiter-system")
             return command
         command = [
             sys.executable,
@@ -748,6 +756,8 @@ class CODESApplication(tk.Tk):
             command.append("--no-zonal-harmonics")
         if not self.large_asteroids.get():
             command.append("--major-bodies-only")
+        if self.jupiter_system.get():
+            command.append("--jupiter-system")
         return command
 
     def _comet_command(self) -> list[str]:

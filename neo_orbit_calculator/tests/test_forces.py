@@ -5,10 +5,12 @@ import numpy as np
 from neo_orbit_calculator.core import (
     AU_KM,
     ForceModel,
+    JUPITER_SATELLITES,
     full_multibody_1pn_acceleration,
     kepler_shift_position,
     marsden_outgassing_scale,
     photon_radiation_acceleration,
+    resolved_jupiter_gravity_parameters,
     solar_1pn_acceleration,
     solar_wind_acceleration,
     zonal_harmonic_acceleration,
@@ -109,3 +111,63 @@ def test_marsden_law_and_kepler_time_shift() -> None:
 def test_designation_normalization() -> None:
     assert normalize_command("99942") == "99942;"
     assert normalize_command("DES=2004 MN4;") == "DES=2004 MN4;"
+
+
+def test_resolved_jupiter_system_preserves_the_barycenter_gm() -> None:
+    gravity_parameters = {
+        "JUPITER BARYCENTER": 1.2671276409999998e8,
+        "IO": 5.959915466180539e3,
+        "EUROPA": 3.202712099607295e3,
+        "GANYMEDE": 9.887832752719638e3,
+        "CALLISTO": 7.179283402579837e3,
+        "AMALTHEA": 1.645634534798259e-1,
+        "HIMALIA": 1.515524299611265e-1,
+        "THEBE": 3.0148e-2,
+        "ADRASTEA": 1.39e-4,
+        "METIS": 2.501e-3,
+    }
+    central, satellites, system = resolved_jupiter_gravity_parameters(
+        gravity_parameters
+    )
+    assert len(JUPITER_SATELLITES) == 9
+    assert central > 0.0
+    assert np.isclose(central + satellites, system, rtol=0.0, atol=1.0e-8)
+    central_only, no_satellites, _ = resolved_jupiter_gravity_parameters(
+        gravity_parameters,
+        (),
+    )
+    assert central_only == system
+    assert no_satellites == 0.0
+
+
+def test_resolved_jupiter_system_converges_to_its_far_field_monopole() -> None:
+    system_gm = 1.2671276409999998e8
+    satellite_gm = np.array([5959.915, 3202.712, 9887.833, 7179.283])
+    satellite_positions = np.array(
+        [
+            [421_800.0, 0.0, 0.0],
+            [0.0, 671_100.0, 0.0],
+            [-1_070_400.0, 0.0, 0.0],
+            [0.0, -1_882_700.0, 0.0],
+        ]
+    )
+    central_gm = system_gm - float(np.sum(satellite_gm))
+    central_position = -np.sum(
+        satellite_gm[:, None] * satellite_positions,
+        axis=0,
+    ) / central_gm
+    target = np.array([1.0e10, -2.0e9, 1.0e9])
+
+    def acceleration(gm: float, source: np.ndarray) -> np.ndarray:
+        displacement = source - target
+        return gm * displacement / np.linalg.norm(displacement) ** 3
+
+    resolved = acceleration(central_gm, central_position)
+    for gm, position in zip(
+        satellite_gm,
+        satellite_positions,
+        strict=True,
+    ):
+        resolved += acceleration(float(gm), position)
+    monopole = acceleration(system_gm, np.zeros(3))
+    np.testing.assert_allclose(resolved, monopole, rtol=5.0e-12, atol=0.0)

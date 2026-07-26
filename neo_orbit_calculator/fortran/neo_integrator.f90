@@ -3,10 +3,12 @@ module neo_integrator
   implicit none
 
   integer, parameter :: qp = selected_real_kind(33, 4931)
-  integer, parameter :: nbody = 27
+  integer, parameter :: nbody = 37
   integer(c_int), parameter :: body_ids(nbody) = [ &
        10_c_int, 1_c_int, 2_c_int, 399_c_int, 301_c_int, 4_c_int, &
-       5_c_int, 6_c_int, 7_c_int, 8_c_int, 9_c_int, &
+       5_c_int, 599_c_int, 501_c_int, 502_c_int, 503_c_int, 504_c_int, &
+       505_c_int, 506_c_int, 514_c_int, 515_c_int, 516_c_int, &
+       6_c_int, 7_c_int, 8_c_int, 9_c_int, &
        2000001_c_int, 2000004_c_int, 2000002_c_int, 2000010_c_int, &
        2000511_c_int, 2000704_c_int, 2000052_c_int, 2000087_c_int, &
        2000015_c_int, 2000003_c_int, 2000016_c_int, 2000107_c_int, &

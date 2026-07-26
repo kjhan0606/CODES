@@ -88,6 +88,21 @@ required. The default force model also downloads the JPL SB441-N16 kernel and
 includes all 16 of its most massive main-belt perturbers. Use
 `--major-bodies-only` only for a reduced diagnostic run.
 
+Use `--jupiter-system` for a close Jovian encounter:
+
+```bash
+python -m neo_orbit_calculator.cli propagate 1P \
+  --start 2026-01-01 --stop 2036-01-01 --jupiter-system
+```
+
+This optional mode downloads the 1.1 GB JPL JUP365 satellite SPK. It replaces
+the Jupiter-system barycenter monopole with Jupiter and every mass-resolved
+satellite that has continuous SPK coverage over the requested interval. The
+effective central Jupiter GM is the system GM minus the active satellite GMs,
+so the far-field monopole is preserved exactly and satellite masses are not
+counted twice. JUP365 spans 1600 through 2200. The compact DE440s interval
+remains the tighter limit unless a longer planetary SPK is supplied.
+
 For a small artificial object, supply an area-to-mass ratio:
 
 ```bash
@@ -265,6 +280,9 @@ The tabs expose the following operations.
 - **Planetary J2/J4/J6** evaluates the zonal acceleration in the
   time-dependent IAU pole direction.
 - **16 large asteroids** includes the JPL SB441-N16 perturbers.
+- **Resolved Jupiter system** downloads JUP365 on first use and replaces the
+  Jupiter barycenter source with Jupiter and the mass-resolved satellites that
+  cover the complete requested interval.
 - **Non-gravitational law** selects inverse-square scaling for asteroid
   sensitivity tests or the Marsden water-ice law for cometary outgassing.
   The lag is applied to the osculating heliocentric state.

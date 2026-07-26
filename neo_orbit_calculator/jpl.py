@@ -34,6 +34,10 @@ SB441_N16_URL = (
     "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/"
     "asteroids_de441/sb441-n16.bsp"
 )
+JUP365_URL = (
+    "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
+    "spk/satellites/jup365.bsp"
+)
 
 
 def _get_json(url: str, timeout: int = 180) -> dict:
@@ -95,6 +99,25 @@ def ensure_sb441_n16(kernel_dir: Path) -> Path:
         headers={"User-Agent": "3.5ST-NEO-Orbit-Calculator/1.0"},
     )
     with urllib.request.urlopen(request, timeout=900) as response:
+        with temporary.open("wb") as stream:
+            while block := response.read(4 * 1024 * 1024):
+                stream.write(block)
+    temporary.replace(destination)
+    return destination
+
+
+def ensure_jup365(kernel_dir: Path) -> Path:
+    """Download the JPL Jupiter and satellite ephemeris when requested."""
+    kernel_dir.mkdir(parents=True, exist_ok=True)
+    destination = kernel_dir / "jup365.bsp"
+    if destination.exists() and destination.stat().st_size > 50_000_000:
+        return destination
+    temporary = destination.with_suffix(".bsp.part")
+    request = urllib.request.Request(
+        JUP365_URL,
+        headers={"User-Agent": "3.5ST-NEO-Orbit-Calculator/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=1800) as response:
         with temporary.open("wb") as stream:
             while block := response.read(4 * 1024 * 1024):
                 stream.write(block)

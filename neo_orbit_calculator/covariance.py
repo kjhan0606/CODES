@@ -334,6 +334,7 @@ def propagate_virtual_asteroids(
     kernel_dir: Path | str = Path("kernels"),
     base_model: ForceModel | None = None,
     include_large_asteroids: bool = True,
+    include_jupiter_system: bool = False,
 ) -> VirtualAsteroidResult:
     """Propagate a complete correlated virtual-asteroid ensemble."""
     if stop_jd_tdb <= solution.epoch_jd_tdb:
@@ -344,6 +345,11 @@ def propagate_virtual_asteroids(
     environment = DE440Environment(
         Path(kernel_dir),
         include_large_asteroids=include_large_asteroids,
+        include_jupiter_system=include_jupiter_system,
+    )
+    environment.configure_jupiter_system(
+        environment.jd_to_et(solution.epoch_jd_tdb),
+        environment.jd_to_et(stop_jd_tdb),
     )
     integrator = FortranIntegrator(environment)
     coarse_seconds = np.linspace(
@@ -500,8 +506,19 @@ def propagate_virtual_asteroids(
         function_evaluations=evaluations,
         seed=seed,
         kernel=(
-            f"Fortran real{integrator.precision_digits} + DE440s/"
-            "SB441-N16 + full multi-body 1PN"
+            f"Fortran real{integrator.precision_digits} + DE440s"
+            + (
+                " + SB441-N16"
+                if environment.include_large_asteroids
+                else ""
+            )
+            + (
+                " + JUP365 resolved Jupiter system "
+                f"({', '.join(environment.active_jupiter_system)})"
+                if environment.jupiter_system_enabled
+                else ""
+            )
+            + " + full multi-body 1PN"
         ),
     )
 

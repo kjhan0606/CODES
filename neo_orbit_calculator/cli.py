@@ -151,6 +151,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the 16 SB441-N16 main-belt perturbers",
     )
+    custom.add_argument(
+        "--jupiter-system",
+        action="store_true",
+        help=(
+            "Replace the Jupiter barycenter monopole with Jupiter and the "
+            "mass-resolved JUP365 satellites; downloads a large optional kernel"
+        ),
+    )
 
     virtual = subparsers.add_parser(
         "virtual-asteroids",
@@ -175,6 +183,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--major-bodies-only",
         action="store_true",
         help="Skip the 16 SB441-N16 main-belt perturbers",
+    )
+    virtual.add_argument(
+        "--jupiter-system",
+        action="store_true",
+        help=(
+            "Replace the Jupiter barycenter monopole with Jupiter and the "
+            "mass-resolved JUP365 satellites"
+        ),
     )
 
     comet_orbits = subparsers.add_parser(
@@ -387,6 +403,7 @@ def main() -> None:
             kernel_dir=args.kernel_dir,
             base_model=model,
             include_large_asteroids=not args.major_bodies_only,
+            include_jupiter_system=args.jupiter_system,
         )
         csv_path, summary_path, figure_path = (
             write_virtual_asteroid_products(result, args.output_dir)
@@ -460,6 +477,7 @@ def main() -> None:
         kernel_dir=args.kernel_dir,
         validate_horizons=not args.no_validation,
         include_large_asteroids=not args.major_bodies_only,
+        include_jupiter_system=args.jupiter_system,
         backend=args.backend,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)

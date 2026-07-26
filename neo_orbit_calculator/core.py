@@ -9,7 +9,12 @@ import numpy as np
 import spiceypy as spice
 from scipy.integrate import solve_ivp
 
-from .jpl import ensure_generic_kernels, ensure_sb441_n16, horizons_vectors
+from .jpl import (
+    ensure_generic_kernels,
+    ensure_jup365,
+    ensure_sb441_n16,
+    horizons_vectors,
+)
 
 AU_KM = 149_597_870.700
 DAY_S = 86_400.0
@@ -27,10 +32,38 @@ PERTURBERS = (
     "MOON",
     "MARS BARYCENTER",
     "JUPITER BARYCENTER",
+    "JUPITER",
+    "IO",
+    "EUROPA",
+    "GANYMEDE",
+    "CALLISTO",
+    "AMALTHEA",
+    "HIMALIA",
+    "THEBE",
+    "ADRASTEA",
+    "METIS",
     "SATURN BARYCENTER",
     "URANUS BARYCENTER",
     "NEPTUNE BARYCENTER",
     "PLUTO BARYCENTER",
+)
+
+JUPITER_SATELLITES = (
+    ("IO", 501),
+    ("EUROPA", 502),
+    ("GANYMEDE", 503),
+    ("CALLISTO", 504),
+    ("AMALTHEA", 505),
+    ("HIMALIA", 506),
+    ("THEBE", 514),
+    ("ADRASTEA", 515),
+    ("METIS", 516),
+)
+JUPITER_SYSTEM_KEYS = ("JUPITER",) + tuple(
+    name for name, _spice_id in JUPITER_SATELLITES
+)
+JUPITER_SYSTEM_IDS = (599,) + tuple(
+    spice_id for _name, spice_id in JUPITER_SATELLITES
 )
 
 # JPL IOM 392R-21-005, Table 1. The file SB441-N16 contains these
@@ -55,6 +88,29 @@ LARGE_ASTEROIDS = (
     ("2000065", "Cybele", 2.0917175955133682e-15 * _GM_CONVERSION),
 )
 PERTURBER_KEYS = PERTURBERS + tuple(item[0] for item in LARGE_ASTEROIDS)
+
+
+def resolved_jupiter_gravity_parameters(
+    gravity_parameters: dict[str, float],
+    satellite_names: tuple[str, ...] | None = None,
+) -> tuple[float, float, float]:
+    """Partition the system GM without changing its far-field monopole."""
+    system_gm = gravity_parameters["JUPITER BARYCENTER"]
+    selected = (
+        tuple(name for name, _spice_id in JUPITER_SATELLITES)
+        if satellite_names is None
+        else satellite_names
+    )
+    satellite_gm = sum(
+        gravity_parameters[name] for name in selected
+    )
+    effective_jupiter_gm = system_gm - satellite_gm
+    if effective_jupiter_gm <= 0.0:
+        raise ValueError(
+            "The Jupiter-system GM is not larger than the selected satellite "
+            "GM sum."
+        )
+    return effective_jupiter_gm, satellite_gm, system_gm
 
 # Reference equatorial radii and unnormalized zonal coefficients. The
 # expansion is evaluated through J6. A zero coefficient leaves that degree
@@ -81,6 +137,13 @@ ZONAL_GRAVITY = {
         499,
     ),
     "JUPITER BARYCENTER": (
+        71_492.0,
+        1.4696572e-2,
+        -5.86609e-4,
+        3.4198e-5,
+        599,
+    ),
+    "JUPITER": (
         71_492.0,
         1.4696572e-2,
         -5.86609e-4,
@@ -178,19 +241,37 @@ class PropagationResult:
 class DE440Environment:
     """SPICE-backed planetary positions and gravity parameters."""
 
-    def __init__(self, kernel_dir: Path, include_large_asteroids: bool = True):
+    def __init__(
+        self,
+        kernel_dir: Path,
+        include_large_asteroids: bool = True,
+        include_jupiter_system: bool = False,
+    ):
         paths = ensure_generic_kernels(kernel_dir)
         spice.kclear()
         spice.furnsh(str(paths["naif0012.tls"]))
         spice.furnsh(str(paths["gm_de440.tpc"]))
         spice.furnsh(str(paths["pck00011.tpc"]))
         spice.furnsh(str(paths["de440s.bsp"]))
+        self.jupiter_kernel: Path | None = None
+        if include_jupiter_system:
+            self.jupiter_kernel = ensure_jup365(kernel_dir)
+            spice.furnsh(str(self.jupiter_kernel))
         if include_large_asteroids:
             spice.furnsh(str(ensure_sb441_n16(kernel_dir)))
         self.gm = {
             body: float(spice.bodvrd(body, "GM", 1)[1][0])
             for body in PERTURBERS
         }
+        self.jupiter_system_enabled = include_jupiter_system
+        self._jupiter_system_gm = self.gm["JUPITER BARYCENTER"]
+        self._jupiter_component_gm = {
+            body: self.gm[body] for body in JUPITER_SYSTEM_KEYS
+        }
+        self.active_jupiter_system: tuple[str, ...] = ()
+        for body in JUPITER_SYSTEM_KEYS:
+            self.gm[body] = 0.0
+        self.jupiter_mass_balance_km3_s2 = 0.0
         for spice_id, _name, gm in LARGE_ASTEROIDS:
             self.gm[spice_id] = gm if include_large_asteroids else 0.0
         self.include_large_asteroids = include_large_asteroids
@@ -224,6 +305,73 @@ class DE440Environment:
         return np.asarray(
             spice.spkezr(body, et, "J2000", "NONE", "SOLAR SYSTEM BARYCENTER")[0],
             dtype=float,
+        )
+
+    @staticmethod
+    def _spk_covers(
+        path: Path,
+        spice_id: int,
+        start_et: float,
+        stop_et: float,
+    ) -> bool:
+        coverage = spice.spkcov(str(path), spice_id)
+        for interval in range(spice.wncard(coverage)):
+            lower, upper = spice.wnfetd(coverage, interval)
+            if lower <= start_et and stop_et <= upper:
+                return True
+        return False
+
+    def configure_jupiter_system(
+        self,
+        start_et: float,
+        stop_et: float,
+    ) -> None:
+        """Activate every mass-resolved component covered over the interval."""
+        if not self.jupiter_system_enabled:
+            return
+        assert self.jupiter_kernel is not None
+        if not self._spk_covers(
+            self.jupiter_kernel,
+            JUPITER_SYSTEM_IDS[0],
+            start_et,
+            stop_et,
+        ):
+            raise ValueError(
+                "JUP365 does not continuously cover Jupiter over the requested "
+                "TDB interval. Disable --jupiter-system or use a satellite SPK "
+                "with matching coverage."
+            )
+        active_satellites = tuple(
+            name
+            for name, spice_id in JUPITER_SATELLITES
+            if self._spk_covers(
+                self.jupiter_kernel,
+                spice_id,
+                start_et,
+                stop_et,
+            )
+        )
+        gravity_parameters = {
+            "JUPITER BARYCENTER": self._jupiter_system_gm,
+            **self._jupiter_component_gm,
+        }
+        (
+            effective_jupiter_gm,
+            satellite_gm,
+            system_gm,
+        ) = resolved_jupiter_gravity_parameters(
+            gravity_parameters,
+            active_satellites,
+        )
+        self.gm["JUPITER BARYCENTER"] = 0.0
+        for body in JUPITER_SYSTEM_KEYS:
+            self.gm[body] = 0.0
+        self.gm["JUPITER"] = effective_jupiter_gm
+        for body in active_satellites:
+            self.gm[body] = self._jupiter_component_gm[body]
+        self.active_jupiter_system = ("JUPITER",) + active_satellites
+        self.jupiter_mass_balance_km3_s2 = (
+            effective_jupiter_gm + satellite_gm - system_gm
         )
 
     def pole(self, body: str, et: float) -> np.ndarray:
@@ -687,6 +835,7 @@ def propagate_custom(
     atol_velocity_kms: float = 1e-12,
     validate_horizons: bool = True,
     include_large_asteroids: bool = True,
+    include_jupiter_system: bool = False,
     backend: str = "fortran",
 ) -> PropagationResult:
     """Integrate a massless NEO in the ICRF barycentric frame.
@@ -703,10 +852,13 @@ def propagate_custom(
     environment = DE440Environment(
         Path(kernel_dir),
         include_large_asteroids=include_large_asteroids,
+        include_jupiter_system=include_jupiter_system,
     )
     initial, _ = horizons_vectors(designation, [start_jd_tdb])
     initial_state = initial[0, 1:7]
     epoch_et = environment.jd_to_et(start_jd_tdb)
+    stop_et = environment.jd_to_et(stop_jd_tdb)
+    environment.configure_jupiter_system(epoch_et, stop_et)
     output_seconds = np.linspace(
         0.0,
         (stop_jd_tdb - start_jd_tdb) * DAY_S,
@@ -732,8 +884,15 @@ def propagate_custom(
         )
         kernel_description = (
             f"Fortran real{integrator.precision_digits} arithmetic + "
-            "JPL DE440s/SB441-N16 binary64 SPK"
+            "JPL DE440s binary64 SPK"
         )
+        if environment.include_large_asteroids:
+            kernel_description += " + SB441-N16"
+        if environment.jupiter_system_enabled:
+            kernel_description += (
+                " + JUP365 resolved Jupiter system "
+                f"({', '.join(environment.active_jupiter_system)})"
+            )
         if model.relativity_1pn:
             kernel_description += (
                 " + full multi-body 1PN"
@@ -757,7 +916,14 @@ def propagate_custom(
             raise RuntimeError(solution.message)
         states = solution.y.T
         function_evaluations = solution.nfev
-        kernel_description = "SciPy DOP853 binary64 + JPL DE440s/SB441-N16"
+        kernel_description = "SciPy DOP853 binary64 + JPL DE440s"
+        if environment.include_large_asteroids:
+            kernel_description += " + SB441-N16"
+        if environment.jupiter_system_enabled:
+            kernel_description += (
+                " + JUP365 resolved Jupiter system "
+                f"({', '.join(environment.active_jupiter_system)})"
+            )
         if model.relativity_1pn:
             kernel_description += (
                 " + full multi-body 1PN"
