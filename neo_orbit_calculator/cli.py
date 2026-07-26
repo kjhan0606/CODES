@@ -25,6 +25,14 @@ from .covariance import (
     propagate_virtual_asteroids,
     write_virtual_asteroid_products,
 )
+from .historical import (
+    HISTORICAL_RECORDS,
+    ObserverSite,
+    SEOUL_GWANSANGGAM,
+    epoch_grid,
+    historical_comet_positions,
+    write_historical_products,
+)
 from .jpl import download_horizons_spk, horizons_vectors
 
 
@@ -209,11 +217,101 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("output/comet_sky"),
     )
+
+    historical = subparsers.add_parser(
+        "historical-comet",
+        help="Plot one fitted comet apparition against a historical sky record",
+    )
+    historical.add_argument("designation", nargs="?", default="1P")
+    historical.add_argument(
+        "--record",
+        choices=tuple(HISTORICAL_RECORDS),
+        help="Bundled historical record and observing metadata",
+    )
+    historical.add_argument(
+        "--epoch",
+        help="Center UTC epoch. A bundled record supplies its own epoch.",
+    )
+    historical.add_argument("--span-days", type=float, default=4.0)
+    historical.add_argument("--samples", type=int, default=17)
+    historical.add_argument(
+        "--apparition-record",
+        type=int,
+        help="Numeric JPL Horizons apparition record",
+    )
+    historical.add_argument(
+        "--observer-lon",
+        type=float,
+        default=SEOUL_GWANSANGGAM.longitude_deg_east,
+    )
+    historical.add_argument(
+        "--observer-lat",
+        type=float,
+        default=SEOUL_GWANSANGGAM.latitude_deg,
+    )
+    historical.add_argument(
+        "--observer-elevation-km",
+        type=float,
+        default=SEOUL_GWANSANGGAM.elevation_km,
+    )
+    historical.add_argument("--field-radius", type=float, default=12.0)
+    historical.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output/historical_comet"),
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.command == "historical-comet":
+        record = HISTORICAL_RECORDS.get(args.record)
+        if record is not None:
+            designation = record.designation
+            center_epoch = record.center_epoch_utc
+            site = record.site
+        else:
+            designation = args.designation
+            if not args.epoch:
+                raise ValueError("--epoch is required without --record.")
+            center_epoch = args.epoch
+            site = ObserverSite(
+                name="User-specified historical observer",
+                longitude_deg_east=args.observer_lon,
+                latitude_deg=args.observer_lat,
+                elevation_km=args.observer_elevation_km,
+            )
+        epochs = epoch_grid(center_epoch, args.span_days, args.samples)
+        rows, apparition_record = historical_comet_positions(
+            designation,
+            epochs,
+            site,
+            apparition_record=args.apparition_record,
+        )
+        csv_path, summary_path, plot_path = write_historical_products(
+            args.output_dir,
+            designation,
+            rows,
+            site,
+            record=record,
+            field_radius_deg=args.field_radius,
+        )
+        print(
+            json.dumps(
+                {
+                    "designation": designation,
+                    "apparition_record": apparition_record,
+                    "record": args.record,
+                    "csv": str(csv_path.resolve()),
+                    "summary": str(summary_path.resolve()),
+                    "plot": str(plot_path.resolve()),
+                },
+                indent=2,
+            )
+        )
+        return
+
     if args.command == "comet-orbits":
         apparitions = collect_comet_apparitions(
             args.designation,

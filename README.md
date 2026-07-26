@@ -218,6 +218,44 @@ Apparition records are separate fitted solutions. A modern comet solution
 must not be extrapolated through ancient close encounters and then presented
 as an observationally certified trajectory.
 
+## Historical Comet Identification Mode
+
+The historical mode accepts a comet designation and UTC epoch, selects one
+fitted JPL apparition, and draws the comet on a Hipparcos finder chart for a
+specified terrestrial observer. The output table includes ICRS and apparent
+coordinates, azimuth, elevation, solar elongation, distance, IAU
+constellation, and the numeric Horizons apparition record.
+
+```bash
+python -m neo_orbit_calculator.cli historical-comet 1P \
+  --epoch 1759-04-06T20:30:00 \
+  --observer-lon 126.9780 --observer-lat 37.5665 \
+  --output-dir neo_orbit_calculator/output/historical_halley
+```
+
+CODES includes one curated Joseon record for the lunar date 1759 March 11.
+The preset selects the Hanyang reference site and the 1759 apparition of
+1P/Halley.
+
+```bash
+python -m neo_orbit_calculator.cli historical-comet \
+  --record joseon-halley-1759-03-11 \
+  --output-dir neo_orbit_calculator/output/joseon_halley_1759
+```
+
+The preset compares the calculated position with two directly interpretable
+record constraints. The point lies within the right-ascension interval of the
+Xu lunar mansion and north of the Liyu asterism. The reported north-polar
+distance of 116 degrees is preserved in the JSON provenance but is excluded
+from the score. A defensible use of that number requires calibration of the
+manuscript transcription, instrument scale, and historical coordinate
+convention.
+
+The bundled record is an initial validation case rather than a complete
+Joseon comet catalog. Historical identification requires multiple dated
+positions and uncertainty regions. A single qualitative asterism relation
+does not establish an object identity.
+
 ## Desktop interface
 
 ```bash
@@ -246,6 +284,7 @@ The tabs expose the following operations.
 | **NEO dynamics** | Designation, TDB interval, samples, covariance clone count and seed, area-to-mass ratio, `A1/A2/A3`, solar-wind density and speed, non-gravitational law, outgassing lag, and force switches | Horizons SPK, vector CSV, local state CSV, orbit plot, full-covariance virtual-asteroid products, and Horizons residual summary |
 | **Comet evolution** | Comet designation, start and stop years, optional known return years | JPL apparition CSV and plots of return interval, semimajor axis, and perihelion distance |
 | **Sky positions** | Comet designation, UTC epochs, Horizons observer code | Apparent RA and Dec, heliocentric and observer distance, IAU constellation, CSV, and sky-track plot |
+| **Historical identification** | Comet, UTC epoch, JPL apparition record, observer site, time span, and chart radius | Hipparcos finder chart, topocentric coordinate table, record-constraint evaluation, and provenance JSON |
 | **Validation** | Ten-object NEO suite or historical Halley suite | Official-data residuals, provenance JSON, tables, and diagnostic figures |
 
 ### NEO dynamics controls

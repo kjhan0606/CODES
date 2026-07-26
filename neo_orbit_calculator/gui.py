@@ -127,6 +127,7 @@ class CODESApplication(tk.Tk):
         self._build_neo_tab(notebook)
         self._build_comet_tab(notebook)
         self._build_sky_tab(notebook)
+        self._build_historical_tab(notebook)
         self._build_validation_tab(notebook)
 
         log_header = ttk.Frame(shell)
@@ -489,6 +490,135 @@ class CODESApplication(tk.Tk):
             columnspan=4,
         )
 
+    def _build_historical_tab(self, notebook: ttk.Notebook) -> None:
+        tab = self._new_tab(notebook, "Historical identification")
+        self.historical = {
+            "designation": tk.StringVar(value="1P"),
+            "record": tk.StringVar(value="joseon-halley-1759-03-11"),
+            "epoch": tk.StringVar(value="1759-04-06T20:30:00"),
+            "span_days": tk.StringVar(value="4"),
+            "samples": tk.StringVar(value="17"),
+            "apparition_record": tk.StringVar(value=""),
+            "longitude": tk.StringVar(value="126.9780"),
+            "latitude": tk.StringVar(value="37.5665"),
+            "elevation": tk.StringVar(value="0.05"),
+            "field_radius": tk.StringVar(value="12"),
+            "output": tk.StringVar(
+                value=str(DEFAULT_OUTPUT / "historical_comet")
+            ),
+        }
+        ttk.Label(
+            tab,
+            text="Historical sky chart and record-constraint comparison",
+            style="Section.TLabel",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
+        self._field(
+            tab,
+            "Comet designation",
+            self.historical["designation"],
+            1,
+            0,
+        )
+        ttk.Label(tab, text="Bundled record").grid(
+            row=1,
+            column=2,
+            sticky="w",
+            padx=(0, 8),
+            pady=5,
+        )
+        ttk.Combobox(
+            tab,
+            textvariable=self.historical["record"],
+            values=("", "joseon-halley-1759-03-11"),
+            state="readonly",
+            width=27,
+        ).grid(
+            row=1,
+            column=3,
+            sticky="ew",
+            padx=(0, 20),
+            pady=5,
+        )
+        self._field(
+            tab,
+            "Center epoch, UTC",
+            self.historical["epoch"],
+            2,
+            0,
+        )
+        self._field(
+            tab,
+            "JPL apparition record",
+            self.historical["apparition_record"],
+            2,
+            2,
+        )
+        self._field(
+            tab,
+            "Track span [day]",
+            self.historical["span_days"],
+            3,
+            0,
+        )
+        self._field(
+            tab,
+            "Track samples",
+            self.historical["samples"],
+            3,
+            2,
+        )
+        self._field(
+            tab,
+            "Longitude east [deg]",
+            self.historical["longitude"],
+            4,
+            0,
+        )
+        self._field(
+            tab,
+            "Latitude [deg]",
+            self.historical["latitude"],
+            4,
+            2,
+        )
+        self._field(
+            tab,
+            "Elevation [km]",
+            self.historical["elevation"],
+            5,
+            0,
+        )
+        self._field(
+            tab,
+            "Chart radius [deg]",
+            self.historical["field_radius"],
+            5,
+            2,
+        )
+        ttk.Label(
+            tab,
+            text=(
+                "The bundled Joseon record selects the 1759 Halley "
+                "apparition and Hanyang observing metadata. Clear the "
+                "record field to use the manual target, epoch, and site."
+            ),
+            wraplength=860,
+            justify="left",
+            foreground="#c9d4cf",
+        ).grid(row=6, column=0, columnspan=4, sticky="w", pady=(7, 5))
+        self._output_field(tab, self.historical["output"], 7)
+        self._action_button(
+            tab,
+            "Generate historical finder chart",
+            lambda: self._run(
+                self._historical_command(),
+                "historical comet identification",
+            ),
+            8,
+            0,
+            columnspan=4,
+        )
+
     def _build_validation_tab(self, notebook: ttk.Notebook) -> None:
         tab = self._new_tab(notebook, "Validation")
         ttk.Label(
@@ -656,6 +786,47 @@ class CODESApplication(tk.Tk):
             "--output-dir",
             self.sky["output"].get().strip(),
         ]
+
+    def _historical_command(self) -> list[str]:
+        command = [
+            sys.executable,
+            "-m",
+            "neo_orbit_calculator.cli",
+            "historical-comet",
+            self.historical["designation"].get().strip(),
+        ]
+        record = self.historical["record"].get().strip()
+        if record:
+            command.extend(["--record", record])
+        else:
+            command.extend(
+                [
+                    "--epoch",
+                    self.historical["epoch"].get().strip(),
+                    "--observer-lon",
+                    self.historical["longitude"].get().strip(),
+                    "--observer-lat",
+                    self.historical["latitude"].get().strip(),
+                    "--observer-elevation-km",
+                    self.historical["elevation"].get().strip(),
+                ]
+            )
+        apparition_record = self.historical["apparition_record"].get().strip()
+        if apparition_record:
+            command.extend(["--apparition-record", apparition_record])
+        command.extend(
+            [
+                "--span-days",
+                self.historical["span_days"].get().strip(),
+                "--samples",
+                self.historical["samples"].get().strip(),
+                "--field-radius",
+                self.historical["field_radius"].get().strip(),
+                "--output-dir",
+                self.historical["output"].get().strip(),
+            ]
+        )
+        return command
 
     def _run(self, command: list[str], label: str) -> None:
         if any(not token for token in command):
