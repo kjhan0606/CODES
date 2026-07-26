@@ -9,18 +9,18 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy.time import Time
 
 from neo_orbit_calculator.comets import (
     collect_comet_apparitions,
-    plot_orbit_evolution,
 )
 
 ROOT = Path(__file__).resolve().parent
 CSV_PATH = ROOT / "halley_return_validation.csv"
 PROVENANCE_PATH = ROOT / "halley_return_provenance.json"
-FIGURE_PATH = ROOT / "appendixC_assets" / "halley_return_history.png"
+FIGURE_PATH = ROOT / "appendixC_assets" / "halley_apparition_history.png"
 TEX_PATH = ROOT / "halley_return_validation_table.tex"
 AU_KM = 149_597_870.700
 
@@ -39,6 +39,153 @@ HISTORICAL_OBSERVED_MINUS_CALCULATED_DAYS = {
 }
 
 NASA_RETURN_YEARS = {1986, 1910, 1835, 1759}
+
+
+def plot_validation(
+    rows: list[dict[str, object]],
+    apparitions: list[object],
+) -> None:
+    years = np.array([int(row["return_year"]) for row in rows])
+    intervals = np.array(
+        [float(row["return_interval_year"]) for row in rows]
+    )
+    semimajor = np.array(
+        [float(row["semimajor_axis_au"]) for row in rows]
+    )
+    perihelion = np.array(
+        [float(item.perihelion_au) for item in apparitions]
+    )
+    reference_interval = np.array(
+        [float(row["reference_return_interval_year"]) for row in rows]
+    )
+    reference_type = np.array(
+        [str(row["reference_type"]) for row in rows]
+    )
+
+    figure, axes = plt.subplots(
+        3,
+        1,
+        figsize=(11.2, 9.4),
+        sharex=True,
+    )
+    axes[0].plot(
+        years[1:],
+        intervals[1:],
+        color="#B55220",
+        marker="o",
+        lw=1.8,
+        label="CODES-assembled Horizons sequence",
+    )
+    historical = (
+        np.isfinite(reference_interval)
+        & (reference_type == "historical observation")
+    )
+    official = reference_type == "NASA/JPL official"
+    official_interval = np.where(
+        np.isfinite(reference_interval),
+        reference_interval,
+        intervals,
+    )
+    axes[0].scatter(
+        years[historical],
+        reference_interval[historical],
+        marker="*",
+        s=105,
+        color="#245AA6",
+        edgecolor="white",
+        linewidth=0.6,
+        zorder=4,
+        label="observation-constrained returns",
+    )
+    axes[0].scatter(
+        years[official],
+        official_interval[official],
+        marker="D",
+        s=76,
+        facecolor="#FFD166",
+        edgecolor="#151B23",
+        linewidth=1.2,
+        zorder=6,
+        label="NASA/JPL official return epochs",
+    )
+    axes[0].axhline(
+        76.0,
+        color="#5C6875",
+        ls="--",
+        lw=1.2,
+        label="fixed 76-year approximation",
+    )
+    axes[0].set_ylabel("return interval [yr]")
+    axes[0].legend(frameon=False, ncol=2, fontsize=8.5)
+
+    change_index = int(np.argmax(np.abs(np.diff(semimajor))))
+    change_start = years[change_index]
+    change_stop = years[change_index + 1]
+    axes[1].plot(
+        years,
+        semimajor,
+        color="#007C77",
+        marker="o",
+        label="CODES-assembled JPL semimajor axis",
+    )
+    axes[1].scatter(
+        years[official],
+        semimajor[official],
+        marker="D",
+        s=76,
+        facecolor="#FFD166",
+        edgecolor="#151B23",
+        linewidth=1.2,
+        zorder=6,
+        label="NASA/JPL official values",
+    )
+    axes[1].set_ylabel("semimajor axis [au]")
+    axes[1].legend(frameon=False)
+    axes[1].annotate(
+        (
+            f"largest |delta a|: {change_start}-{change_stop}\n"
+            f"{semimajor[change_index + 1] - semimajor[change_index]:+.3f} au"
+        ),
+        (change_stop, semimajor[change_index + 1]),
+        xytext=(10, -32),
+        textcoords="offset points",
+        color="#B55220",
+    )
+
+    axes[2].plot(
+        years,
+        perihelion,
+        color="#B86B00",
+        marker="s",
+        label="CODES-assembled JPL perihelion distance",
+    )
+    axes[2].scatter(
+        years[official],
+        perihelion[official],
+        marker="D",
+        s=76,
+        facecolor="#FFD166",
+        edgecolor="#151B23",
+        linewidth=1.2,
+        zorder=6,
+        label="NASA/JPL official values",
+    )
+    axes[2].set_ylabel("perihelion distance [au]")
+    axes[2].set_xlabel("perihelion return year")
+    axes[2].legend(frameon=False)
+    for axis in axes:
+        axis.axvspan(
+            change_start,
+            change_stop,
+            color="#B55220",
+            alpha=0.09,
+        )
+        axis.grid(alpha=0.22)
+    figure.suptitle("1P/Halley orbit solutions and observed return timing")
+    figure.tight_layout()
+    FIGURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(FIGURE_PATH, dpi=220, facecolor="white")
+    plt.close(figure)
 
 
 def _range_vectors(
@@ -146,6 +293,29 @@ def build_rows() -> tuple[list[dict[str, object]], dict[str, object]]:
                 apparition.return_year
             )
         )
+        if observed_minus_calculated is not None:
+            reference_jd = (
+                apparition.perihelion_jd_tdb
+                + observed_minus_calculated
+            )
+            reference_type = "historical observation"
+        elif apparition.return_year in NASA_RETURN_YEARS:
+            reference_jd = apparition.perihelion_jd_tdb
+            reference_type = "NASA/JPL official"
+        else:
+            reference_jd = float("nan")
+            reference_type = "none"
+        previous_reference_jd = (
+            float(rows[-1]["reference_perihelion_jd_tdb"])
+            if rows
+            else float("nan")
+        )
+        reference_interval = (
+            (reference_jd - previous_reference_jd) / 365.25
+            if np.isfinite(reference_jd)
+            and np.isfinite(previous_reference_jd)
+            else float("nan")
+        )
         rows.append(
             {
                 "return_year": apparition.return_year,
@@ -156,6 +326,9 @@ def build_rows() -> tuple[list[dict[str, object]], dict[str, object]]:
                 "semimajor_axis_au": apparition.semimajor_axis_au,
                 "delta_semimajor_axis_au": delta_a,
                 "osculating_period_year": apparition.osculating_period_year,
+                "reference_perihelion_jd_tdb": reference_jd,
+                "reference_return_interval_year": reference_interval,
+                "reference_type": reference_type,
                 "calculated_minus_historical_days": (
                     -observed_minus_calculated
                     if observed_minus_calculated is not None
@@ -189,7 +362,7 @@ def build_rows() -> tuple[list[dict[str, object]], dict[str, object]]:
             rows[change_index + 1]["return_interval_year"]
         ),
     }
-    plot_orbit_evolution(FIGURE_PATH, apparitions)
+    plot_validation(rows, apparitions)
     return rows, strongest
 
 

@@ -25,6 +25,10 @@ KERNEL_URLS = {
     "naif0012.tls": (
         "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls"
     ),
+    "pck00011.tpc": (
+        "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
+        "pck/pck00011.tpc"
+    ),
 }
 SB441_N16_URL = (
     "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/"

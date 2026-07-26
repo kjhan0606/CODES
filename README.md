@@ -8,9 +8,12 @@ CODES separates two scientifically different tasks.
    Horizons. This is the authoritative reproducibility product.
 2. `propagate` runs a local sensitivity calculation. JPL DE440s supplies the
    Sun, planet, Earth, and Moon states. The local force model adds the solar
-   Schwarzschild 1PN term, direct solar radiation pressure, Poynting-Robertson
-   drag, solar-wind drag, and optional JPL-style `A1`, `A2`, and `A3`
-   accelerations.
+   full massless-target multi-body 1PN term, direct solar radiation pressure,
+   Poynting-Robertson
+   drag, a radial proton-wind momentum model, planetary `J2`, `J4`, and `J6`,
+   and optional JPL-style `A1`, `A2`, and `A3` accelerations. The
+   non-gravitational coefficients may use inverse-square scaling or the
+   Marsden water-ice law with an asymmetric time lag.
 
 The default local backend is Fortran. It calls CSPICE at every force
 evaluation, reads JPL `GM` values instead of multiplying separate `G` and
@@ -18,6 +21,13 @@ mass estimates, and uses `real(kind=16)` for the integrated state and force
 sums. GNU Fortran reports 33 decimal digits on the current platform. The
 SPICE input and output boundary remains IEEE-754 binary64 because that is the
 precision of the JPL SPK interface.
+
+The Fortran step is adaptive in two independent ways. The embedded
+Dormand-Prince error estimate controls local truncation error. A physical
+limiter also keeps every internal step below 5% of both
+`sqrt(r^3 / GM)` and `r / |relative velocity|` for every active perturber.
+Strong gravity and rapid close passages therefore reduce the internal step
+even when the requested output table is coarse.
 
 ## Important interpretation
 
@@ -32,9 +42,10 @@ would not remove uncertainty in the fitted initial orbit, close encounters,
 small-body perturbers, Yarkovsky acceleration, or physical parameters.
 
 A 100-year SPK is reproducible over its declared coverage. A 100-year nominal
-trajectory is not equivalent to a 100-year impact prediction. Hazard work must
-propagate the JPL covariance and compare virtual asteroids through close
-encounters with a system such as JPL Sentry-II.
+trajectory is not equivalent to a 100-year impact prediction. CODES can
+propagate the full JPL solution-epoch covariance as correlated virtual
+asteroids. Its direct Monte Carlo screening is not a replacement for the
+targeted line-of-variation and encounter-plane search used by JPL Sentry-II.
 
 ## Installation
 
@@ -88,9 +99,64 @@ python -m neo_orbit_calculator.cli propagate 99942 \
 Use `--backend scipy` for a binary64 cross-check. The default backend is
 Fortran real128.
 
-The solar-wind drag factor defaults to 0.35 times the
-Poynting-Robertson drag term. This is a configurable secular approximation,
-not a time-resolved heliospheric plasma model.
+The default relativistic model is the massless-target
+Einstein-Infeld-Hoffmann 1PN acceleration. It includes the potentials,
+velocities, and Newtonian source accelerations of every active DE440s and
+SB441-N16 perturber. `--solar-1pn-only` selects the former Sun-only
+Schwarzschild expression for a controlled comparison. The source ephemerides
+remain prescribed by DE440s/SB441-N16 rather than being re-integrated.
+
+## Full covariance and virtual asteroids
+
+```bash
+python -m neo_orbit_calculator.cli virtual-asteroids 99942 \
+  --stop 2029-05-01 --clones 1000 --samples 2001 --seed 42 \
+  --output-dir neo_orbit_calculator/output/apophis_covariance
+```
+
+This mode requests `cov=mat&full-prec=true` from the NASA/JPL Small-Body
+Database. It uses the covariance epoch and the complete matrix supplied by
+JPL, including correlations among `e`, `q`, `tp`, `node`, `peri`, `i` and
+estimated non-gravitational parameters such as `A1`, `A2`, `A3`, or `DT` when
+present. Each correlated draw is converted from heliocentric ecliptic
+elements to a barycentric J2000 state and propagated independently by the
+real128 Fortran backend. The output includes:
+
+- clone parameters and closest-approach results in CSV;
+- a JSON record of the JPL orbit ID, covariance epoch, seed, force model, and
+  screening count;
+- a distance/time diagnostic plot.
+
+The same seed reproduces the same ensemble. The reported
+`screening_impact_fraction` is only the fraction of these direct Gaussian
+draws entering the Earth-plus-100-km screening sphere. It is not a certified
+impact probability, especially when the probability is much smaller than
+`1 / clones` or close encounters produce disconnected uncertainty branches.
+
+The default solar wind has a proton density of 5 cm^-3, a radial speed of
+400 km/s, and a 1.2 momentum factor for non-proton material. These values are
+configurable. The model evaluates the full relative wind vector rather than
+scaling the Poynting-Robertson term by a fixed ratio. It remains a stationary
+radial-wind model rather than a forecast of transient heliospheric plasma.
+
+The zonal gravity model evaluates `J2`, `J4`, and `J6` in the time-dependent
+IAU pole direction from the NAIF planetary constants kernel. DE440s supplies
+planet-system barycenters for Mars and the outer planets. Precision work
+inside a satellite system must add the relevant planet-center satellite SPK.
+
+For a cometary non-gravitational experiment:
+
+```bash
+python -m neo_orbit_calculator.cli propagate 1P \
+  --start 2061-06-01 --stop 2061-10-01 \
+  --a1 1e-8 --a2=-2e-9 \
+  --nongrav-law marsden --outgassing-lag-days 30
+```
+
+The lagged heliocentric distance is evaluated by shifting the instantaneous
+osculating state with a universal-variable Kepler solution. The default
+Marsden parameters are `r0=2.808 au`, `m=2.15`, `n=5.093`, `k=4.6142`, and
+`alpha=0.111262`.
 
 ## Historical close-approach validation
 
@@ -158,12 +224,56 @@ as an observationally certified trajectory.
 python -m neo_orbit_calculator
 ```
 
-The integrated CODES window exposes NEO SPK retrieval, Horizons vectors,
-local Fortran propagation, comet apparition histories, apparent
-constellation positions, and the NEO and Halley validation suites. The
-existing `neo_orbit_calculator` package remains the calculation backend.
-`python -m neo_orbit_calculator.gui` is retained as an equivalent launch
-command.
+`python -m neo_orbit_calculator.gui` is an equivalent launch command. The
+desktop requires Tk, which is normally supplied by the operating-system
+Python installation.
+
+### Basic GUI workflow
+
+1. Select one of the four tabs.
+2. Enter the designation and time interval or epoch list.
+3. Select an output directory.
+4. Review the physical switches before starting a local propagation.
+5. Run the requested action. CODES prints the complete command in **Run log**
+   and leaves the window responsive while the calculation executes.
+6. Read the JSON summary in the log and open the reported CSV, SPK, or PNG
+   from the selected output directory.
+
+The tabs expose the following operations.
+
+| Tab | Main controls | Products |
+| --- | --- | --- |
+| **NEO dynamics** | Designation, TDB interval, samples, covariance clone count and seed, area-to-mass ratio, `A1/A2/A3`, solar-wind density and speed, non-gravitational law, outgassing lag, and force switches | Horizons SPK, vector CSV, local state CSV, orbit plot, full-covariance virtual-asteroid products, and Horizons residual summary |
+| **Comet evolution** | Comet designation, start and stop years, optional known return years | JPL apparition CSV and plots of return interval, semimajor axis, and perihelion distance |
+| **Sky positions** | Comet designation, UTC epochs, Horizons observer code | Apparent RA and Dec, heliocentric and observer distance, IAU constellation, CSV, and sky-track plot |
+| **Validation** | Ten-object NEO suite or historical Halley suite | Official-data residuals, provenance JSON, tables, and diagnostic figures |
+
+### NEO dynamics controls
+
+- **Download JPL SPK** requests the authoritative time-continuous Horizons
+  product. Local force switches do not alter the returned JPL trajectory.
+- **Fetch Horizons vectors** writes sampled authoritative states without
+  running the local integrator.
+- **Run local propagation** starts the real128 Fortran sensitivity model.
+- **Run covariance ensemble** retrieves the complete JPL SBDB covariance and
+  propagates correlated virtual asteroids with a reproducible seed.
+- **Full multi-body 1PN** enables the massless-target EIH correction from all
+  active DE440s/SB441-N16 sources.
+- **Poynting-Robertson drag** uses the complete first-order photon momentum
+  equation when the area-to-mass ratio is nonzero.
+- **Solar-wind drag** uses the entered proton density and radial wind speed.
+- **Planetary J2/J4/J6** evaluates the zonal acceleration in the
+  time-dependent IAU pole direction.
+- **16 large asteroids** includes the JPL SB441-N16 perturbers.
+- **Non-gravitational law** selects inverse-square scaling for asteroid
+  sensitivity tests or the Marsden water-ice law for cometary outgassing.
+  The lag is applied to the osculating heliocentric state.
+
+The GUI ingests and propagates a JPL covariance; it does not fit a covariance
+from astrometry. It reports a finite-sample screening fraction, not a
+Sentry-II-equivalent impact probability. Use the JPL SPK for reproducible
+authoritative trajectories and treat local propagation as a force-model and
+numerical-sensitivity calculation.
 
 ## References
 
@@ -175,3 +285,7 @@ command.
 - JPL SBDB API: <https://ssd-api.jpl.nasa.gov/doc/sbdb.html>
 - JPL CNEOS Close-Approach API: <https://ssd-api.jpl.nasa.gov/doc/cad.html>
 - MPC Observations API: <https://data.minorplanetcenter.net/api>
+- Newhall, Standish, and Williams 1983, A&A, 125, 150
+- Tamayo et al. 2020, MNRAS, 491, 2885
+- REBOUNDx full-GR implementation:
+  <https://reboundx.readthedocs.io/en/stable/effects.html>

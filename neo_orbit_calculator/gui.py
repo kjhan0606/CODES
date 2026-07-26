@@ -21,8 +21,8 @@ class CODESApplication(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("CODES | Orbit Dynamics and Ephemeris")
-        self.geometry("1120x790")
-        self.minsize(960, 680)
+        self.geometry("1120x900")
+        self.minsize(960, 720)
         self.configure(bg="#0e1b18")
         self._buttons: list[ttk.Button] = []
         self._configure_style()
@@ -254,10 +254,16 @@ class CODESApplication(tk.Tk):
             "start": tk.StringVar(value="2026-01-01"),
             "stop": tk.StringVar(value="2126-01-01"),
             "samples": tk.StringVar(value="401"),
+            "clones": tk.StringVar(value="100"),
+            "seed": tk.StringVar(value="42"),
             "area_mass": tk.StringVar(value="0"),
+            "wind_density": tk.StringVar(value="5.0"),
+            "wind_speed": tk.StringVar(value="400.0"),
             "a1": tk.StringVar(value="0"),
             "a2": tk.StringVar(value="0"),
             "a3": tk.StringVar(value="0"),
+            "nongrav_law": tk.StringVar(value="inverse_square"),
+            "outgassing_lag": tk.StringVar(value="0.0"),
             "output": tk.StringVar(value=str(DEFAULT_OUTPUT / "neo")),
         }
         ttk.Label(
@@ -279,31 +285,80 @@ class CODESApplication(tk.Tk):
         self._field(tab, "A1 [au d-2]", self.neo["a1"], 3, 2)
         self._field(tab, "A2 [au d-2]", self.neo["a2"], 4, 0)
         self._field(tab, "A3 [au d-2]", self.neo["a3"], 4, 2)
-        self._output_field(tab, self.neo["output"], 5)
+        self._field(
+            tab,
+            "Solar-wind density [cm-3]",
+            self.neo["wind_density"],
+            5,
+            0,
+        )
+        self._field(
+            tab,
+            "Solar-wind speed [km s-1]",
+            self.neo["wind_speed"],
+            5,
+            2,
+        )
+        ttk.Label(tab, text="Non-gravitational law").grid(
+            row=6,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=5,
+        )
+        ttk.Combobox(
+            tab,
+            textvariable=self.neo["nongrav_law"],
+            values=("inverse_square", "marsden"),
+            state="readonly",
+            width=22,
+        ).grid(
+            row=6,
+            column=1,
+            sticky="ew",
+            padx=(0, 20),
+            pady=5,
+        )
+        self._field(
+            tab,
+            "Outgassing lag [day]",
+            self.neo["outgassing_lag"],
+            6,
+            2,
+        )
+        self._field(tab, "Covariance clones", self.neo["clones"], 7, 0)
+        self._field(tab, "Random seed", self.neo["seed"], 7, 2)
+        self._output_field(tab, self.neo["output"], 8)
 
         self.relativity = tk.BooleanVar(value=True)
         self.pr_drag = tk.BooleanVar(value=True)
         self.solar_wind = tk.BooleanVar(value=True)
+        self.zonal_harmonics = tk.BooleanVar(value=True)
         self.large_asteroids = tk.BooleanVar(value=True)
         checks = (
-            ("Solar 1PN relativity", self.relativity),
+            ("Full multi-body 1PN", self.relativity),
             ("Poynting-Robertson drag", self.pr_drag),
             ("Solar-wind drag", self.solar_wind),
-            ("16 large asteroids", self.large_asteroids),
+            ("Planetary J2/J4/J6", self.zonal_harmonics),
         )
         for index, (label, variable) in enumerate(checks):
             ttk.Checkbutton(tab, text=label, variable=variable).grid(
-                row=6,
+                row=9,
                 column=index,
                 sticky="w",
                 pady=(9, 0),
             )
+        ttk.Checkbutton(
+            tab,
+            text="16 large asteroids",
+            variable=self.large_asteroids,
+        ).grid(row=10, column=0, sticky="w", pady=(5, 0))
 
         self._action_button(
             tab,
             "Download JPL SPK",
             lambda: self._run(self._neo_command("spk"), "JPL SPK download"),
-            7,
+            11,
             0,
         )
         self._action_button(
@@ -313,7 +368,7 @@ class CODESApplication(tk.Tk):
                 self._neo_command("vectors"),
                 "Horizons vector retrieval",
             ),
-            7,
+            11,
             1,
         )
         self._action_button(
@@ -323,9 +378,18 @@ class CODESApplication(tk.Tk):
                 self._neo_command("propagate"),
                 "local NEO propagation",
             ),
-            7,
+            11,
             2,
-            columnspan=2,
+        )
+        self._action_button(
+            tab,
+            "Run covariance ensemble",
+            lambda: self._run(
+                self._neo_command("virtual-asteroids"),
+                "virtual-asteroid covariance propagation",
+            ),
+            11,
+            3,
         )
 
     def _build_comet_tab(self, notebook: ttk.Notebook) -> None:
@@ -473,6 +537,33 @@ class CODESApplication(tk.Tk):
             variable.set(chosen)
 
     def _neo_command(self, mode: str) -> list[str]:
+        if mode == "virtual-asteroids":
+            command = [
+                sys.executable,
+                "-m",
+                "neo_orbit_calculator.cli",
+                mode,
+                self.neo["designation"].get().strip(),
+                "--stop",
+                self.neo["stop"].get().strip(),
+                "--clones",
+                self.neo["clones"].get().strip(),
+                "--samples",
+                self.neo["samples"].get().strip(),
+                "--seed",
+                self.neo["seed"].get().strip(),
+                "--output-dir",
+                self.neo["output"].get().strip(),
+                "--kernel-dir",
+                str(Path(__file__).resolve().parent / "kernels"),
+            ]
+            if not self.relativity.get():
+                command.append("--no-relativity")
+            if not self.zonal_harmonics.get():
+                command.append("--no-zonal-harmonics")
+            if not self.large_asteroids.get():
+                command.append("--major-bodies-only")
+            return command
         command = [
             sys.executable,
             "-m",
@@ -500,12 +591,20 @@ class CODESApplication(tk.Tk):
             str(Path(__file__).resolve().parent / "kernels"),
             "--area-mass",
             self.neo["area_mass"].get().strip(),
+            "--solar-wind-density",
+            self.neo["wind_density"].get().strip(),
+            "--solar-wind-speed",
+            self.neo["wind_speed"].get().strip(),
             "--a1",
             self.neo["a1"].get().strip(),
             "--a2",
             self.neo["a2"].get().strip(),
             "--a3",
             self.neo["a3"].get().strip(),
+            "--nongrav-law",
+            self.neo["nongrav_law"].get().strip(),
+            "--outgassing-lag-days",
+            self.neo["outgassing_lag"].get().strip(),
             "--backend",
             "fortran",
         ]
@@ -515,6 +614,8 @@ class CODESApplication(tk.Tk):
             command.append("--no-pr")
         if not self.solar_wind.get():
             command.append("--no-solar-wind")
+        if not self.zonal_harmonics.get():
+            command.append("--no-zonal-harmonics")
         if not self.large_asteroids.get():
             command.append("--major-bodies-only")
         return command

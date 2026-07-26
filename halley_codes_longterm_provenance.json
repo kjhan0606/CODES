@@ -1,0 +1,23 @@
+{
+  "generated_utc": "2026-07-26",
+  "purpose": "Independent long-term propagation consistency test",
+  "initial_state_source": "NASA/JPL Horizons record 90000030 at 1850-01-02 TDB",
+  "comparison_source": "NASA/JPL Horizons records 90000029 and 90000030",
+  "integration_interval_tdb": [
+    "1850-01-02",
+    "2000-01-01"
+  ],
+  "force_model": {
+    "A1_au_day2": 4.887055233121e-10,
+    "A2_au_day2": 1.554720290005e-10,
+    "nongrav_law": "Marsden standard water-ice law",
+    "outgassing_lag_days": 0.0,
+    "relativity": "full massless-target Einstein-Infeld-Hoffmann 1PN",
+    "major_bodies": "DE440s",
+    "large_asteroids": "SB441-N16"
+  },
+  "kernel": "Fortran real33 arithmetic + JPL DE440s/SB441-N16 binary64 SPK + full multi-body 1PN + NAIF PCK J2/J4/J6",
+  "adaptive_step": "embedded error control plus 5% gravity/crossing-time limiter",
+  "function_evaluations": 204043,
+  "interpretation": "This validates forward propagation from one fitted initial state. It is not a blind orbit fit because JPL solution #75 uses observations through 1994."
+}

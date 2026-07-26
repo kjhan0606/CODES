@@ -20,6 +20,11 @@ from .comets import (
     write_sky_csv,
 )
 from .core import AU_KM, ForceModel, propagate_custom
+from .covariance import (
+    fetch_sbdb_covariance,
+    propagate_virtual_asteroids,
+    write_virtual_asteroid_products,
+)
 from .jpl import download_horizons_spk, horizons_vectors
 
 
@@ -105,16 +110,60 @@ def build_parser() -> argparse.ArgumentParser:
     custom.add_argument("--output-dir", type=Path, default=Path("output"))
     custom.add_argument("--area-mass", type=float, default=0.0, help="m^2/kg")
     custom.add_argument("--cr", type=float, default=1.0)
-    custom.add_argument("--solar-wind-ratio", type=float, default=0.35)
+    custom.add_argument("--solar-wind-density", type=float, default=5.0)
+    custom.add_argument("--solar-wind-speed", type=float, default=400.0)
+    custom.add_argument("--solar-wind-momentum-factor", type=float, default=1.2)
     custom.add_argument("--a1", type=float, default=0.0, help="au/day^2")
     custom.add_argument("--a2", type=float, default=0.0, help="au/day^2")
     custom.add_argument("--a3", type=float, default=0.0, help="au/day^2")
+    custom.add_argument(
+        "--nongrav-law",
+        choices=("inverse_square", "marsden"),
+        default="inverse_square",
+    )
+    custom.add_argument("--outgassing-r0", type=float, default=2.808)
+    custom.add_argument("--outgassing-m", type=float, default=2.15)
+    custom.add_argument("--outgassing-n", type=float, default=5.093)
+    custom.add_argument("--outgassing-k", type=float, default=4.6142)
+    custom.add_argument("--outgassing-alpha", type=float, default=0.111262)
+    custom.add_argument("--outgassing-lag-days", type=float, default=0.0)
     custom.add_argument("--no-relativity", action="store_true")
+    custom.add_argument(
+        "--solar-1pn-only",
+        action="store_true",
+        help="Use the legacy Sun-only Schwarzschild term for comparison",
+    )
     custom.add_argument("--no-pr", action="store_true")
     custom.add_argument("--no-solar-wind", action="store_true")
+    custom.add_argument("--no-zonal-harmonics", action="store_true")
     custom.add_argument("--no-validation", action="store_true")
     custom.add_argument("--backend", choices=("fortran", "scipy"), default="fortran")
     custom.add_argument(
+        "--major-bodies-only",
+        action="store_true",
+        help="Skip the 16 SB441-N16 main-belt perturbers",
+    )
+
+    virtual = subparsers.add_parser(
+        "virtual-asteroids",
+        help="Propagate the full JPL covariance as correlated virtual asteroids",
+    )
+    virtual.add_argument("designation")
+    virtual.add_argument("--stop", default="2030-01-01")
+    virtual.add_argument("--clones", type=int, default=100)
+    virtual.add_argument(
+        "--samples",
+        type=int,
+        default=1001,
+        help="Coarse output samples used to locate the closest approach",
+    )
+    virtual.add_argument("--seed", type=int, default=42)
+    virtual.add_argument("--kernel-dir", type=Path, default=Path("kernels"))
+    virtual.add_argument("--output-dir", type=Path, default=Path("output"))
+    virtual.add_argument("--no-relativity", action="store_true")
+    virtual.add_argument("--solar-1pn-only", action="store_true")
+    virtual.add_argument("--no-zonal-harmonics", action="store_true")
+    virtual.add_argument(
         "--major-bodies-only",
         action="store_true",
         help="Skip the 16 SB441-N16 main-belt perturbers",
@@ -224,6 +273,55 @@ def main() -> None:
         print(json.dumps({"spk_id": spk_id, "path": str(path.resolve())}, indent=2))
         return
 
+    if args.command == "virtual-asteroids":
+        solution = fetch_sbdb_covariance(args.designation)
+        model = ForceModel(
+            relativity_1pn=not args.no_relativity,
+            full_multibody_1pn=not args.solar_1pn_only,
+            planetary_zonal_harmonics=not args.no_zonal_harmonics,
+        )
+        result = propagate_virtual_asteroids(
+            solution,
+            _jd(args.stop),
+            clones=args.clones,
+            samples=args.samples,
+            seed=args.seed,
+            kernel_dir=args.kernel_dir,
+            base_model=model,
+            include_large_asteroids=not args.major_bodies_only,
+        )
+        csv_path, summary_path, figure_path = (
+            write_virtual_asteroid_products(result, args.output_dir)
+        )
+        print(
+            json.dumps(
+                {
+                    "designation": solution.designation,
+                    "orbit_id": solution.orbit_id,
+                    "covariance_epoch_jd_tdb": solution.epoch_jd_tdb,
+                    "covariance_dimensions": len(solution.labels),
+                    "clones": len(result.samples),
+                    "minimum_earth_distance_km": float(
+                        np.min(result.closest_approach_km)
+                    ),
+                    "nominal_closest_approach_jd_tdb": (
+                        result.nominal_closest_approach_jd_tdb
+                    ),
+                    "nominal_closest_approach_km": (
+                        result.nominal_closest_approach_km
+                    ),
+                    "screening_impact_count": (
+                        result.screening_impact_count
+                    ),
+                    "clone_csv": str(csv_path.resolve()),
+                    "summary": str(summary_path.resolve()),
+                    "plot": str(figure_path.resolve()),
+                },
+                indent=2,
+            )
+        )
+        return
+
     start = _jd(args.start)
     stop = _jd(args.stop)
     jd = np.linspace(start, stop, args.samples)
@@ -235,14 +333,25 @@ def main() -> None:
 
     model = ForceModel(
         relativity_1pn=not args.no_relativity,
+        full_multibody_1pn=not args.solar_1pn_only,
         area_mass_m2_kg=args.area_mass,
         radiation_coefficient=args.cr,
         poynting_robertson=not args.no_pr,
         solar_wind_drag=not args.no_solar_wind,
-        solar_wind_to_pr=args.solar_wind_ratio,
+        solar_wind_density_cm3=args.solar_wind_density,
+        solar_wind_speed_km_s=args.solar_wind_speed,
+        solar_wind_momentum_factor=args.solar_wind_momentum_factor,
+        planetary_zonal_harmonics=not args.no_zonal_harmonics,
         a1_au_day2=args.a1,
         a2_au_day2=args.a2,
         a3_au_day2=args.a3,
+        nongrav_law=args.nongrav_law,
+        outgassing_r0_au=args.outgassing_r0,
+        outgassing_m=args.outgassing_m,
+        outgassing_n=args.outgassing_n,
+        outgassing_k=args.outgassing_k,
+        outgassing_alpha=args.outgassing_alpha,
+        outgassing_lag_days=args.outgassing_lag_days,
     )
     result = propagate_custom(
         args.designation,

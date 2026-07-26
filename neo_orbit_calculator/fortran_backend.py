@@ -39,11 +39,38 @@ class FortranIntegrator:
             [self.environment.gm[body] for body in PERTURBER_KEYS],
             dtype=np.float64,
         )
+        zonal_radius = np.zeros(len(PERTURBER_KEYS), dtype=np.float64)
+        zonal_coefficients = np.zeros(
+            (3, len(PERTURBER_KEYS)),
+            dtype=np.float64,
+            order="F",
+        )
+        pole_ra = np.zeros(
+            (3, len(PERTURBER_KEYS)),
+            dtype=np.float64,
+            order="F",
+        )
+        pole_dec = np.zeros(
+            (3, len(PERTURBER_KEYS)),
+            dtype=np.float64,
+            order="F",
+        )
+        for index, body in enumerate(PERTURBER_KEYS):
+            if body not in self.environment.zonal:
+                continue
+            zonal = self.environment.zonal[body]
+            zonal_radius[index] = float(zonal["radius_km"])
+            zonal_coefficients[:, index] = zonal["coefficients"]
+            pole_ra[:, index] = zonal["pole_ra_deg"]
+            pole_dec[:, index] = zonal["pole_dec_deg"]
         options = np.ascontiguousarray(
             [
                 int(model.relativity_1pn),
                 int(model.poynting_robertson),
                 int(model.solar_wind_drag),
+                int(model.planetary_zonal_harmonics),
+                int(model.nongrav_law == "marsden"),
+                int(model.full_multibody_1pn),
             ],
             dtype=np.int32,
         )
@@ -51,10 +78,18 @@ class FortranIntegrator:
             [
                 model.area_mass_m2_kg,
                 model.radiation_coefficient,
-                model.solar_wind_to_pr,
+                model.solar_wind_density_cm3,
+                model.solar_wind_speed_km_s,
+                model.solar_wind_momentum_factor,
                 model.a1_au_day2,
                 model.a2_au_day2,
                 model.a3_au_day2,
+                model.outgassing_r0_au,
+                model.outgassing_m,
+                model.outgassing_n,
+                model.outgassing_k,
+                model.outgassing_alpha,
+                model.outgassing_lag_days,
                 0.0,
                 0.0,
             ],
@@ -71,6 +106,10 @@ class FortranIntegrator:
             ctypes.POINTER(ctypes.c_double),
             double_pointer,
             ctypes.c_int,
+            double_pointer,
+            double_pointer,
+            double_pointer,
+            double_pointer,
             double_pointer,
             int_pointer,
             double_pointer,
@@ -93,6 +132,10 @@ class FortranIntegrator:
             times.ctypes.data_as(double_pointer),
             len(times),
             gm.ctypes.data_as(double_pointer),
+            zonal_radius.ctypes.data_as(double_pointer),
+            zonal_coefficients.ctypes.data_as(double_pointer),
+            pole_ra.ctypes.data_as(double_pointer),
+            pole_dec.ctypes.data_as(double_pointer),
             options.ctypes.data_as(int_pointer),
             parameters.ctypes.data_as(double_pointer),
             ctypes.byref(rtol_value),

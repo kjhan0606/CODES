@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import spiceypy as spice
 from astropy.time import Time
+from matplotlib.patches import Patch
 from scipy.interpolate import CubicSpline
 from scipy.optimize import minimize_scalar
 
@@ -255,19 +256,44 @@ def _make_figure(rows: list[dict[str, object]]) -> None:
     figure, axes = plt.subplots(
         1, 3, figsize=(15.2, 7.0), sharey=True, facecolor="white"
     )
-    colors = ["#B86B00" if value >= 0 else "#A7354D" for value in lead]
+    colors = ["#E3A008" if value >= 0 else "#D1495B" for value in lead]
     panels = (
         (lead, "MPC discovery relative to CA [h]", colors),
         (time_error, "Local - JPL CA time [s]", "#007C77"),
         (distance_error, "Local - JPL CA distance [km]", "#245AA6"),
     )
-    for axis, (values, xlabel, color) in zip(axes, panels, strict=True):
+    for index, (axis, (values, xlabel, color)) in enumerate(
+        zip(axes, panels, strict=True)
+    ):
         axis.set_facecolor("white")
         axis.axvline(0, color="#5C6875", lw=0.8, alpha=0.7)
-        axis.barh(y, values, color=color, height=0.62)
+        bar_options = (
+            {"edgecolor": "#151B23", "linewidth": 0.45}
+            if index == 0
+            else {}
+        )
+        axis.barh(y, values, color=color, height=0.62, **bar_options)
         axis.grid(axis="x", color="#5C6875", alpha=0.20, lw=0.7)
         axis.set_xlabel(xlabel)
         axis.spines[["top", "right"]].set_visible(False)
+    axes[0].set_xscale("symlog", linthresh=12.0)
+    axes[0].legend(
+        handles=[
+            Patch(
+                facecolor="#E3A008",
+                edgecolor="#151B23",
+                label="discovered before CA",
+            ),
+            Patch(
+                facecolor="#D1495B",
+                edgecolor="#151B23",
+                label="first reported after CA",
+            ),
+        ],
+        loc="lower right",
+        frameon=False,
+        fontsize=9,
+    )
     axes[0].set_yticks(y, labels)
     axes[0].invert_yaxis()
     axes[0].set_title("MPC observing context")
@@ -281,7 +307,7 @@ def _make_figure(rows: list[dict[str, object]]) -> None:
     figure.text(
         0.5,
         0.015,
-        "Yellow: detected before closest approach; red: first reported after flyby. "
+        "Gold: detected before closest approach; red: first reported after flyby. "
         "Initial state and official comparison use the current JPL orbit solution.",
         ha="center",
         color="#5C6875",
