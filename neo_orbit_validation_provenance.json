@@ -1,0 +1,20 @@
+{
+  "generated_utc": "2026-07-26T03:11:32.607160+00:00",
+  "scope": "Observation-backed force-model propagation validation; not an independent orbit determination from the MPC astrometry.",
+  "mpc_observations_api": "https://data.minorplanetcenter.net/api/get-obs",
+  "jpl_close_approach_api": "https://ssd-api.jpl.nasa.gov/cad.api",
+  "jpl_horizons_api": "https://ssd.jpl.nasa.gov/api/horizons.api",
+  "cases": [
+    "2019 OK",
+    "2019 UN13",
+    "2020 QG",
+    "2020 VT4",
+    "2021 GW4",
+    "2021 UA1",
+    "2022 NF",
+    "2023 BU",
+    "2024 MK",
+    "2024 ON"
+  ],
+  "force_model": "Fortran real33 arithmetic + JPL DE440s/SB441-N16 binary64 SPK"
+}

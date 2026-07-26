@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+fortran/*.so
+kernels/
+output/
+validation_data/

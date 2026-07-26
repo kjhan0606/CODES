@@ -1,0 +1,20 @@
+{
+  "generated_utc": "2026-07-26",
+  "trajectory_source": "NASA/JPL Horizons apparition records",
+  "historical_source": "Yeomans and Kiang 1981, MNRAS 197, 633, Table 5",
+  "strongest_apparition_change": {
+    "from_year": 989,
+    "to_year": 1066,
+    "delta_semimajor_axis_au": 0.33247490982000016,
+    "delta_osculating_period_year": 2.132786685376999,
+    "following_return_interval_year": 79.07906091718091
+  },
+  "jupiter_barycenter_minimum_after_1066": {
+    "calendar_tdb": "A.D. 1067-Mar-05 00:00:00.0000",
+    "jd_tdb": 2110842.5,
+    "distance_au": 1.613803625188936,
+    "halley_solution": "Horizons NAME=Halley;CAP<1070",
+    "jupiter_target": "Horizons Jupiter barycenter 5"
+  },
+  "interpretation": "A fixed 76-year clock is rejected. Ancient records use separate apparition solutions because the current JPL#75 continuous ephemeris is not available before 1599."
+}

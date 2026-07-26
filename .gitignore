@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.so
+*.mod
+.pytest_cache/
+
+neo_orbit_calculator/kernels/
+neo_orbit_calculator/output/
+neo_orbit_calculator/validation_data/
+
+neo_orbit_validation_tables.tex
+appendixC_assets/
