@@ -277,7 +277,19 @@ def _make_figure(rows: list[dict[str, object]]) -> None:
         axis.set_xlabel(xlabel)
         axis.spines[["top", "right"]].set_visible(False)
     axes[0].set_xscale("symlog", linthresh=12.0)
-    axes[0].legend(
+    axes[1].set_xscale(
+        "symlog",
+        linthresh=1.0e-3,
+        linscale=0.8,
+        base=10,
+    )
+    axes[2].set_xscale(
+        "symlog",
+        linthresh=1.0e-4,
+        linscale=0.8,
+        base=10,
+    )
+    figure.legend(
         handles=[
             Patch(
                 facecolor="#E3A008",
@@ -290,7 +302,9 @@ def _make_figure(rows: list[dict[str, object]]) -> None:
                 label="first reported after CA",
             ),
         ],
-        loc="lower right",
+        loc="upper center",
+        bbox_to_anchor=(0.245, 0.915),
+        ncol=2,
         frameon=False,
         fontsize=9,
     )
