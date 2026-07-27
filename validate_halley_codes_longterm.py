@@ -17,8 +17,8 @@ from scipy.optimize import minimize_scalar
 
 from neo_orbit_calculator.core import (
     AU_KM,
-    DE440Environment,
     ForceModel,
+    PlanetaryEnvironment,
     propagate_custom,
 )
 from neo_orbit_calculator.jpl import horizons_elements, horizons_vectors
@@ -32,7 +32,7 @@ CACHE_PATH = (
     ROOT
     / "neo_orbit_calculator"
     / "validation_data"
-    / "halley_codes_1850_2000_full1pn.npz"
+    / "halley_codes_de441_1850_2000_full1pn.npz"
 )
 
 HALLEY_RECORD = "90000030"
@@ -41,7 +41,7 @@ STOP_TDB = "2000-01-01"
 A1_AU_DAY2 = 4.887055233121e-10
 A2_AU_DAY2 = 1.554720290005e-10
 
-# Seed epochs identify the two perihelia inside the DE440s-supported interval.
+# Seed epochs identify the two perihelia inside the validation interval.
 OFFICIAL_RETURNS = (
     (1910, "90000029", 2418781.6785),
     (1986, "90000030", 2446469.9736161465),
@@ -51,7 +51,7 @@ OFFICIAL_RETURNS = (
 def _heliocentric_distance(
     jd_tdb: np.ndarray,
     states: np.ndarray,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> np.ndarray:
     sun = np.asarray(
         [
@@ -65,7 +65,7 @@ def _heliocentric_distance(
 def _osculating_elements(
     state: np.ndarray,
     jd_tdb: float,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> tuple[float, float]:
     et = environment.jd_to_et(jd_tdb)
     heliocentric = state - environment.state("SUN", et)
@@ -108,7 +108,7 @@ def _refine_codes_perihelion(
     states: np.ndarray,
     distance_km: np.ndarray,
     seed_jd: float,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> tuple[float, np.ndarray, float]:
     candidate = np.flatnonzero(
         (jd_tdb >= seed_jd - 20.0) & (jd_tdb <= seed_jd + 20.0)
@@ -233,6 +233,7 @@ def run_validation() -> tuple[
             validate_horizons=False,
             include_large_asteroids=True,
             backend="fortran",
+            ephemeris="de441",
         )
         result_jd = result.jd_tdb
         result_state = result.state_km_kms
@@ -248,8 +249,11 @@ def run_validation() -> tuple[
         )
     if "full multi-body 1PN" not in kernel:
         kernel += " + full multi-body 1PN"
-    environment = DE440Environment(
+    environment = PlanetaryEnvironment(
         KERNEL_DIR,
+        start_jd_tdb=start_jd,
+        stop_jd_tdb=stop_jd,
+        ephemeris="de441",
         include_large_asteroids=True,
     )
     distance_km = _heliocentric_distance(
@@ -356,8 +360,11 @@ def write_outputs(
         format="jd",
         scale="tdb",
     ).decimalyear
-    environment = DE440Environment(
+    environment = PlanetaryEnvironment(
         KERNEL_DIR,
+        start_jd_tdb=float(jd_tdb[0]),
+        stop_jd_tdb=float(jd_tdb[-1]),
+        ephemeris="de441",
         include_large_asteroids=True,
     )
     timeline_elements = np.asarray(
@@ -547,7 +554,7 @@ def write_outputs(
             "relativity": (
                 "full massless-target Einstein-Infeld-Hoffmann 1PN"
             ),
-            "major_bodies": "DE440s",
+            "major_bodies": "DE441 long-term SPK",
             "large_asteroids": "SB441-N16",
         },
         "kernel": kernel,

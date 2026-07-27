@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import io
 import json
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -15,10 +17,6 @@ import numpy as np
 HORIZONS_API = "https://ssd.jpl.nasa.gov/api/horizons.api"
 CAD_API = "https://ssd-api.jpl.nasa.gov/cad.api"
 KERNEL_URLS = {
-    "de440s.bsp": (
-        "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
-        "spk/planets/de440s.bsp"
-    ),
     "gm_de440.tpc": (
         "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/gm_de440.tpc"
     ),
@@ -30,6 +28,34 @@ KERNEL_URLS = {
         "pck/pck00011.tpc"
     ),
 }
+PLANETARY_KERNEL_URLS = {
+    "de442.bsp": (
+        "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
+        "spk/planets/de442.bsp"
+    ),
+    "de441_part-1.bsp": (
+        "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
+        "spk/planets/de441_part-1.bsp"
+    ),
+    "de441_part-2.bsp": (
+        "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
+        "spk/planets/de441_part-2.bsp"
+    ),
+}
+PLANETARY_KERNEL_MD5 = {
+    "de442.bsp": "446656322267e7b819a26cb08a0d8718",
+    "de441_part-1.bsp": "7e5fcf9ecb5d08e1ab70c049baa60cd3",
+    "de441_part-2.bsp": "ad8dfa4e505ef0e3a5d587a5b4705632",
+}
+
+# Official SPK coverage in Julian Date, TDB. The DE441 parts overlap by
+# 32 days so integrations crossing the split remain continuous.
+DE442_START_JD_TDB = 2_287_184.5
+DE442_STOP_JD_TDB = 2_688_976.5
+DE441_START_JD_TDB = -3_100_015.5
+DE441_STOP_JD_TDB = 8_000_016.5
+DE441_PART1_STOP_JD_TDB = 2_440_432.5
+DE441_PART2_START_JD_TDB = 2_440_400.5
 SB441_N16_URL = (
     "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/"
     "asteroids_de441/sb441-n16.bsp"
@@ -38,6 +64,115 @@ JUP365_URL = (
     "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/"
     "spk/satellites/jup365.bsp"
 )
+
+
+@dataclass(frozen=True)
+class PlanetaryEphemeris:
+    """Selected JPL planetary ephemeris and the SPKs needed for an interval."""
+
+    name: str
+    kernel_names: tuple[str, ...]
+    start_jd_tdb: float
+    stop_jd_tdb: float
+    reason: str
+
+
+def select_planetary_ephemeris(
+    start_jd_tdb: float,
+    stop_jd_tdb: float,
+    requested: str = "auto",
+) -> PlanetaryEphemeris:
+    """Select DE442 for its modern interval and DE441 for long-term work."""
+    if stop_jd_tdb < start_jd_tdb:
+        raise ValueError("stop_jd_tdb must not precede start_jd_tdb.")
+    mode = requested.lower()
+    if mode not in {"auto", "de442", "de441"}:
+        raise ValueError("ephemeris must be 'auto', 'de442', or 'de441'.")
+
+    inside_de442 = (
+        DE442_START_JD_TDB <= start_jd_tdb
+        and stop_jd_tdb <= DE442_STOP_JD_TDB
+    )
+    if mode == "auto":
+        mode = "de442" if inside_de442 else "de441"
+        reason = (
+            "requested interval is inside the DE442 modern-epoch coverage"
+            if mode == "de442"
+            else "requested interval extends beyond the DE442 coverage"
+        )
+    else:
+        reason = f"explicit {mode.upper()} selection"
+
+    if mode == "de442":
+        if not inside_de442:
+            raise ValueError(
+                "DE442 covers JD TDB "
+                f"{DE442_START_JD_TDB:.1f} through "
+                f"{DE442_STOP_JD_TDB:.1f}. Use DE441 for this interval."
+            )
+        return PlanetaryEphemeris(
+            name="DE442",
+            kernel_names=("de442.bsp",),
+            start_jd_tdb=DE442_START_JD_TDB,
+            stop_jd_tdb=DE442_STOP_JD_TDB,
+            reason=reason,
+        )
+
+    if not (
+        DE441_START_JD_TDB <= start_jd_tdb
+        and stop_jd_tdb <= DE441_STOP_JD_TDB
+    ):
+        raise ValueError(
+            "DE441 covers JD TDB "
+            f"{DE441_START_JD_TDB:.1f} through "
+            f"{DE441_STOP_JD_TDB:.1f}."
+        )
+    if stop_jd_tdb <= DE441_PART1_STOP_JD_TDB:
+        kernel_names = ("de441_part-1.bsp",)
+    elif start_jd_tdb >= DE441_PART2_START_JD_TDB:
+        kernel_names = ("de441_part-2.bsp",)
+    else:
+        kernel_names = ("de441_part-1.bsp", "de441_part-2.bsp")
+    return PlanetaryEphemeris(
+        name="DE441",
+        kernel_names=kernel_names,
+        start_jd_tdb=DE441_START_JD_TDB,
+        stop_jd_tdb=DE441_STOP_JD_TDB,
+        reason=reason,
+    )
+
+
+def _md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as stream:
+        while block := stream.read(4 * 1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _download(
+    destination: Path,
+    url: str,
+    expected_md5: str | None = None,
+    timeout: int = 1800,
+) -> Path:
+    if destination.exists() and destination.stat().st_size > 0:
+        if expected_md5 is None or _md5(destination) == expected_md5:
+            return destination
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "3.5ST-NEO-Orbit-Calculator/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        with temporary.open("wb") as stream:
+            while block := response.read(4 * 1024 * 1024):
+                stream.write(block)
+    if expected_md5 is not None and _md5(temporary) != expected_md5:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"Checksum verification failed for {destination.name}.")
+    temporary.replace(destination)
+    return destination
 
 
 def _get_json(url: str, timeout: int = 180) -> dict:
@@ -66,25 +201,37 @@ def normalize_command(designation: str) -> str:
 
 
 def ensure_generic_kernels(kernel_dir: Path) -> dict[str, Path]:
-    """Download the compact DE440 kernel set when it is absent."""
+    """Download shared time, gravity, and orientation kernels."""
     kernel_dir.mkdir(parents=True, exist_ok=True)
     paths: dict[str, Path] = {}
     for name, url in KERNEL_URLS.items():
         destination = kernel_dir / name
-        paths[name] = destination
-        if destination.exists() and destination.stat().st_size > 0:
-            continue
-        temporary = destination.with_suffix(destination.suffix + ".part")
-        request = urllib.request.Request(
-            url,
-            headers={"User-Agent": "3.5ST-NEO-Orbit-Calculator/1.0"},
-        )
-        with urllib.request.urlopen(request, timeout=300) as response:
-            with temporary.open("wb") as stream:
-                while block := response.read(1024 * 1024):
-                    stream.write(block)
-        temporary.replace(destination)
+        paths[name] = _download(destination, url, timeout=300)
     return paths
+
+
+def ensure_planetary_ephemeris(
+    kernel_dir: Path,
+    start_jd_tdb: float,
+    stop_jd_tdb: float,
+    requested: str = "auto",
+) -> tuple[PlanetaryEphemeris, tuple[Path, ...]]:
+    """Download and return the selected modern or long-term SPICE kernels."""
+    kernel_dir.mkdir(parents=True, exist_ok=True)
+    selection = select_planetary_ephemeris(
+        start_jd_tdb,
+        stop_jd_tdb,
+        requested=requested,
+    )
+    paths = tuple(
+        _download(
+            kernel_dir / name,
+            PLANETARY_KERNEL_URLS[name],
+            expected_md5=PLANETARY_KERNEL_MD5[name],
+        )
+        for name in selection.kernel_names
+    )
+    return selection, paths
 
 
 def ensure_sb441_n16(kernel_dir: Path) -> Path:

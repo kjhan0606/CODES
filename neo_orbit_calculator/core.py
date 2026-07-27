@@ -1,4 +1,4 @@
-"""Local high-accuracy NEO propagation using JPL DE440 perturber states."""
+"""Local high-accuracy NEO propagation using selected JPL ephemerides."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from scipy.integrate import solve_ivp
 from .jpl import (
     ensure_generic_kernels,
     ensure_jup365,
+    ensure_planetary_ephemeris,
     ensure_sb441_n16,
     horizons_vectors,
 )
@@ -87,6 +88,37 @@ LARGE_ASTEROIDS = (
     ("2000031", "Euphrosyne", 2.4067012218937576e-15 * _GM_CONVERSION),
     ("2000065", "Cybele", 2.0917175955133682e-15 * _GM_CONVERSION),
 )
+DE442_LARGE_ASTEROID_GM_AU3_DAY2 = {
+    "2000001": 1.3964517527933583e-13,
+    "2000002": 3.0793368284607194e-14,
+    "2000003": 4.2785772945839018e-15,
+    "2000004": 3.8548000313805786e-14,
+    "2000007": 2.4882301651533031e-15,
+    "2000010": 1.2036761738318033e-14,
+    "2000015": 4.2878857910389175e-15,
+    "2000016": 3.3966999802423501e-15,
+    "2000031": 2.0597618239548077e-15,
+    "2000052": 5.3228621161866419e-15,
+    "2000065": 2.1439128962397478e-15,
+    "2000087": 4.8970107228022928e-15,
+    "2000088": 2.3357567201608603e-15,
+    "2000107": 2.7284925999205773e-15,
+    "2000511": 9.1088814585921069e-15,
+    "2000704": 5.9070054794427721e-15,
+}
+DE442_MAJOR_BODY_GM_KM3_S2 = {
+    "SUN": 132_712_440_041.253311,
+    "MERCURY BARYCENTER": 22_031.868551,
+    "VENUS BARYCENTER": 324_858.592000,
+    "EARTH": 398_600.435544,
+    "MOON": 4_902.800104,
+    "MARS BARYCENTER": 42_828.375816,
+    "JUPITER BARYCENTER": 126_712_764.100000,
+    "SATURN BARYCENTER": 37_940_584.841800,
+    "URANUS BARYCENTER": 5_794_556.400000,
+    "NEPTUNE BARYCENTER": 6_836_527.100580,
+    "PLUTO BARYCENTER": 975.500000,
+}
 PERTURBER_KEYS = PERTURBERS + tuple(item[0] for item in LARGE_ASTEROIDS)
 
 
@@ -114,9 +146,9 @@ def resolved_jupiter_gravity_parameters(
 
 # Reference equatorial radii and unnormalized zonal coefficients. The
 # expansion is evaluated through J6. A zero coefficient leaves that degree
-# inactive. Planet-system barycenter positions are used where DE440s does not
-# provide a separate planet-center state, which is adequate only outside the
-# satellite-system scale.
+# inactive. Planet-system barycenter positions are used where the selected DE
+# kernel does not provide a separate planet-center state. This is adequate only
+# outside the satellite-system scale.
 ZONAL_GRAVITY = {
     "SUN": (695_700.0, 2.20e-7, 0.0, 0.0, 10),
     "MERCURY BARYCENTER": (2_439.7, 5.031e-5, 0.0, 0.0, 199),
@@ -235,24 +267,40 @@ class PropagationResult:
     velocity_residual_mm_s: np.ndarray | None
     function_evaluations: int
     kernel: str
+    ephemeris: str
+    ephemeris_reason: str
     warning: str
 
 
-class DE440Environment:
+class PlanetaryEnvironment:
     """SPICE-backed planetary positions and gravity parameters."""
 
     def __init__(
         self,
         kernel_dir: Path,
+        start_jd_tdb: float = J2000_JD,
+        stop_jd_tdb: float | None = None,
+        ephemeris: str = "auto",
         include_large_asteroids: bool = True,
         include_jupiter_system: bool = False,
     ):
+        if stop_jd_tdb is None:
+            stop_jd_tdb = start_jd_tdb
         paths = ensure_generic_kernels(kernel_dir)
+        selection, planetary_paths = ensure_planetary_ephemeris(
+            kernel_dir,
+            start_jd_tdb,
+            stop_jd_tdb,
+            requested=ephemeris,
+        )
         spice.kclear()
         spice.furnsh(str(paths["naif0012.tls"]))
         spice.furnsh(str(paths["gm_de440.tpc"]))
         spice.furnsh(str(paths["pck00011.tpc"]))
-        spice.furnsh(str(paths["de440s.bsp"]))
+        for planetary_path in planetary_paths:
+            spice.furnsh(str(planetary_path))
+        self.ephemeris = selection
+        self.planetary_kernel_paths = planetary_paths
         self.jupiter_kernel: Path | None = None
         if include_jupiter_system:
             self.jupiter_kernel = ensure_jup365(kernel_dir)
@@ -263,6 +311,8 @@ class DE440Environment:
             body: float(spice.bodvrd(body, "GM", 1)[1][0])
             for body in PERTURBERS
         }
+        if selection.name == "DE442":
+            self.gm.update(DE442_MAJOR_BODY_GM_KM3_S2)
         self.jupiter_system_enabled = include_jupiter_system
         self._jupiter_system_gm = self.gm["JUPITER BARYCENTER"]
         self._jupiter_component_gm = {
@@ -272,7 +322,13 @@ class DE440Environment:
         for body in JUPITER_SYSTEM_KEYS:
             self.gm[body] = 0.0
         self.jupiter_mass_balance_km3_s2 = 0.0
-        for spice_id, _name, gm in LARGE_ASTEROIDS:
+        for spice_id, _name, de441_gm in LARGE_ASTEROIDS:
+            gm = de441_gm
+            if selection.name == "DE442":
+                gm = (
+                    DE442_LARGE_ASTEROID_GM_AU3_DAY2[spice_id]
+                    * _GM_CONVERSION
+                )
             self.gm[spice_id] = gm if include_large_asteroids else 0.0
         self.include_large_asteroids = include_large_asteroids
         self.zonal = {}
@@ -295,6 +351,11 @@ class DE440Environment:
                 "pole_ra_deg": pole_ra,
                 "pole_dec_deg": pole_dec,
             }
+
+    @property
+    def ephemeris_description(self) -> str:
+        kernels = ", ".join(path.name for path in self.planetary_kernel_paths)
+        return f"JPL {self.ephemeris.name} binary64 SPK ({kernels})"
 
     @staticmethod
     def jd_to_et(jd_tdb: float) -> float:
@@ -388,6 +449,10 @@ class DE440Environment:
                 np.sin(dec),
             ]
         )
+
+
+# Backward-compatible import for scripts written before the DE442 transition.
+DE440Environment = PlanetaryEnvironment
 
 
 def _unit(vector: np.ndarray) -> tuple[np.ndarray, float]:
@@ -709,7 +774,7 @@ def marsden_outgassing_scale(
 
 
 def _rhs_factory(
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
     epoch_et: float,
     model: ForceModel,
 ):
@@ -837,11 +902,12 @@ def propagate_custom(
     include_large_asteroids: bool = True,
     include_jupiter_system: bool = False,
     backend: str = "fortran",
+    ephemeris: str = "auto",
 ) -> PropagationResult:
     """Integrate a massless NEO in the ICRF barycentric frame.
 
-    The initial state is fetched from Horizons. DE440s supplies the positions
-    and velocities of the Sun, planets, Earth, and Moon. This local model is a
+    The initial state is fetched from Horizons. DE442 supplies modern-epoch
+    source states and DE441 supplies long-term states. This local model is a
     sensitivity tool. Horizons SPK output remains the authoritative trajectory.
     """
     if stop_jd_tdb <= start_jd_tdb:
@@ -849,8 +915,11 @@ def propagate_custom(
     if samples < 2:
         raise ValueError("samples must be at least 2.")
     model = model or ForceModel()
-    environment = DE440Environment(
+    environment = PlanetaryEnvironment(
         Path(kernel_dir),
+        start_jd_tdb=start_jd_tdb,
+        stop_jd_tdb=stop_jd_tdb,
+        ephemeris=ephemeris,
         include_large_asteroids=include_large_asteroids,
         include_jupiter_system=include_jupiter_system,
     )
@@ -884,7 +953,7 @@ def propagate_custom(
         )
         kernel_description = (
             f"Fortran real{integrator.precision_digits} arithmetic + "
-            "JPL DE440s binary64 SPK"
+            + environment.ephemeris_description
         )
         if environment.include_large_asteroids:
             kernel_description += " + SB441-N16"
@@ -916,7 +985,10 @@ def propagate_custom(
             raise RuntimeError(solution.message)
         states = solution.y.T
         function_evaluations = solution.nfev
-        kernel_description = "SciPy DOP853 binary64 + JPL DE440s"
+        kernel_description = (
+            "SciPy DOP853 binary64 + "
+            + environment.ephemeris_description
+        )
         if environment.include_large_asteroids:
             kernel_description += " + SB441-N16"
         if environment.jupiter_system_enabled:
@@ -965,5 +1037,7 @@ def propagate_custom(
         velocity_residual_mm_s=velocity_residual,
         function_evaluations=function_evaluations,
         kernel=kernel_description,
+        ephemeris=environment.ephemeris.name,
+        ephemeris_reason=environment.ephemeris.reason,
         warning=warning,
     )

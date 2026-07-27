@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     custom = subparsers.add_parser(
         "propagate",
-        help="Run the local DE440 sensitivity integrator",
+        help="Run the local DE442/DE441 sensitivity integrator",
     )
     custom.add_argument("designation")
     custom.add_argument("--start", default="2026-01-01")
@@ -147,6 +147,12 @@ def build_parser() -> argparse.ArgumentParser:
     custom.add_argument("--no-validation", action="store_true")
     custom.add_argument("--backend", choices=("fortran", "scipy"), default="fortran")
     custom.add_argument(
+        "--ephemeris",
+        choices=("auto", "de442", "de441"),
+        default="auto",
+        help="DE442 for modern work, DE441 for long-term work, or auto by coverage",
+    )
+    custom.add_argument(
         "--major-bodies-only",
         action="store_true",
         help="Skip the 16 SB441-N16 main-belt perturbers",
@@ -176,6 +182,12 @@ def build_parser() -> argparse.ArgumentParser:
     virtual.add_argument("--seed", type=int, default=42)
     virtual.add_argument("--kernel-dir", type=Path, default=Path("kernels"))
     virtual.add_argument("--output-dir", type=Path, default=Path("output"))
+    virtual.add_argument(
+        "--ephemeris",
+        choices=("auto", "de442", "de441"),
+        default="auto",
+        help="DE442 for modern work, DE441 for long-term work, or auto by coverage",
+    )
     virtual.add_argument("--no-relativity", action="store_true")
     virtual.add_argument("--solar-1pn-only", action="store_true")
     virtual.add_argument("--no-zonal-harmonics", action="store_true")
@@ -271,6 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=SEOUL_GWANSANGGAM.elevation_km,
     )
     historical.add_argument("--field-radius", type=float, default=12.0)
+    historical.add_argument("--kernel-dir", type=Path, default=Path("kernels"))
+    historical.add_argument(
+        "--jpl-only",
+        action="store_true",
+        help="Skip the local CODES DE441 propagation overlay",
+    )
     historical.add_argument(
         "--output-dir",
         type=Path,
@@ -304,6 +322,8 @@ def main() -> None:
             epochs,
             site,
             apparition_record=args.apparition_record,
+            kernel_dir=args.kernel_dir,
+            run_codes=not args.jpl_only,
         )
         csv_path, summary_path, plot_path = write_historical_products(
             args.output_dir,
@@ -404,6 +424,7 @@ def main() -> None:
             base_model=model,
             include_large_asteroids=not args.major_bodies_only,
             include_jupiter_system=args.jupiter_system,
+            ephemeris=args.ephemeris,
         )
         csv_path, summary_path, figure_path = (
             write_virtual_asteroid_products(result, args.output_dir)
@@ -479,6 +500,7 @@ def main() -> None:
         include_large_asteroids=not args.major_bodies_only,
         include_jupiter_system=args.jupiter_system,
         backend=args.backend,
+        ephemeris=args.ephemeris,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = args.output_dir / "custom_states.csv"
@@ -493,6 +515,8 @@ def main() -> None:
     summary = {
         "designation": args.designation,
         "kernel": result.kernel,
+        "ephemeris": result.ephemeris,
+        "ephemeris_reason": result.ephemeris_reason,
         "function_evaluations": result.function_evaluations,
         "state_csv": str(csv_path.resolve()),
         "plot": str(plot_path.resolve()),

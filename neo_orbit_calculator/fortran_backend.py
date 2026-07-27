@@ -8,11 +8,11 @@ from pathlib import Path
 import numpy as np
 
 from .build_fortran import build
-from .core import DAY_S, ForceModel, PERTURBER_KEYS, DE440Environment
+from .core import DAY_S, ForceModel, PERTURBER_KEYS, PlanetaryEnvironment
 
 
 class FortranIntegrator:
-    def __init__(self, environment: DE440Environment):
+    def __init__(self, environment: PlanetaryEnvironment):
         library_path = Path(__file__).resolve().parent / "fortran" / "libneo_integrator.so"
         source_path = Path(__file__).resolve().parent / "fortran" / "neo_integrator.f90"
         if not library_path.exists() or library_path.stat().st_mtime < source_path.stat().st_mtime:

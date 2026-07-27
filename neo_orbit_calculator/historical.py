@@ -16,6 +16,7 @@ from astroquery.jplhorizons import Horizons
 from astroquery.vizier import Vizier
 
 from .comets import fetch_comet_apparition
+from .core import ForceModel, PlanetaryEnvironment, propagate_custom
 
 
 @dataclass(frozen=True)
@@ -134,8 +135,10 @@ def historical_comet_positions(
     epochs: list[str],
     site: ObserverSite,
     apparition_record: int | None = None,
+    kernel_dir: Path | None = None,
+    run_codes: bool = True,
 ) -> tuple[list[dict[str, object]], int]:
-    """Return topocentric coordinates from one historical apparition fit."""
+    """Return JPL topocentric coordinates and a local DE441 propagation."""
     if not epochs:
         raise ValueError("At least one epoch is required.")
     record = resolve_apparition_record(
@@ -175,7 +178,73 @@ def historical_comet_positions(
                 "constellation": str(constellations[index]),
             }
         )
+    if run_codes:
+        _add_codes_de441_positions(
+            rows,
+            record,
+            times,
+            Path("kernels") if kernel_dir is None else kernel_dir,
+        )
     return rows, record
+
+
+def _add_codes_de441_positions(
+    rows: list[dict[str, object]],
+    apparition_record: int,
+    times_utc: Time,
+    kernel_dir: Path,
+) -> None:
+    """Attach geocentric ICRS positions from a local DE441 integration."""
+    jd_tdb = np.asarray(times_utc.tdb.jd, dtype=float)
+    result = propagate_custom(
+        str(apparition_record),
+        float(jd_tdb[0]),
+        float(jd_tdb[-1]),
+        samples=len(jd_tdb),
+        model=ForceModel(),
+        kernel_dir=kernel_dir,
+        validate_horizons=False,
+        include_large_asteroids=False,
+        backend="fortran",
+        ephemeris="de441",
+    )
+    environment = PlanetaryEnvironment(
+        kernel_dir,
+        start_jd_tdb=float(jd_tdb[0]),
+        stop_jd_tdb=float(jd_tdb[-1]),
+        ephemeris="de441",
+        include_large_asteroids=False,
+    )
+    earth = np.asarray(
+        [
+            environment.state("EARTH", environment.jd_to_et(epoch))[:3]
+            for epoch in result.jd_tdb
+        ]
+    )
+    relative = result.state_km_kms[:, :3] - earth
+    radius = np.linalg.norm(relative, axis=1)
+    codes_ra = np.degrees(np.arctan2(relative[:, 1], relative[:, 0])) % 360.0
+    codes_dec = np.degrees(np.arcsin(relative[:, 2] / radius))
+    jpl_coordinates = SkyCoord(
+        ra=np.asarray([row["ra_icrs_deg"] for row in rows], dtype=float) * u.deg,
+        dec=np.asarray([row["dec_icrs_deg"] for row in rows], dtype=float) * u.deg,
+        frame="icrs",
+    )
+    codes_coordinates = SkyCoord(
+        ra=codes_ra * u.deg,
+        dec=codes_dec * u.deg,
+        frame="icrs",
+    )
+    separation_arcmin = codes_coordinates.separation(jpl_coordinates).arcminute
+    for index, row in enumerate(rows):
+        row["codes_ra_icrs_deg"] = float(codes_ra[index])
+        row["codes_dec_icrs_deg"] = float(codes_dec[index])
+        row["codes_minus_jpl_arcmin"] = float(separation_arcmin[index])
+        row["codes_ephemeris"] = result.ephemeris
+        row["codes_kernel"] = result.kernel
+        row["codes_coordinate_note"] = (
+            "CODES is geocentric geometric ICRS. JPL is topocentric ICRS."
+        )
 
 
 def _wrapped_ra(values: np.ndarray, center_deg: float) -> np.ndarray:
@@ -279,6 +348,18 @@ def write_historical_products(
         "observer": asdict(site),
         "center_position": center,
     }
+    if "codes_ephemeris" in center:
+        summary["codes_validation"] = {
+            "ephemeris": center["codes_ephemeris"],
+            "kernel": center["codes_kernel"],
+            "coordinate_note": center["codes_coordinate_note"],
+            "center_codes_minus_jpl_arcmin": center[
+                "codes_minus_jpl_arcmin"
+            ],
+            "maximum_codes_minus_jpl_arcmin": max(
+                float(row["codes_minus_jpl_arcmin"]) for row in rows
+            ),
+        }
     if record is not None:
         summary["historical_record"] = asdict(record)
         summary["constraint_evaluation"] = evaluate_joseon_constraints(
@@ -379,9 +460,28 @@ def plot_historical_finder_chart(
         color="#ff9f43",
         lw=2.2,
         alpha=0.9,
-        label=f"{designation} historical apparition fit",
+        label=f"{designation} JPL topocentric apparition fit",
         zorder=4,
     )
+    if "codes_ra_icrs_deg" in rows[0]:
+        codes_ra = _wrapped_ra(
+            np.array(
+                [float(row["codes_ra_icrs_deg"]) for row in rows]
+            ),
+            center_ra,
+        )
+        codes_dec = np.array(
+            [float(row["codes_dec_icrs_deg"]) for row in rows]
+        )
+        axis.plot(
+            codes_ra,
+            codes_dec,
+            color="#67d8ff",
+            lw=1.8,
+            linestyle="--",
+            label="CODES DE441 geocentric propagation",
+            zorder=4,
+        )
     center_index = len(rows) // 2
     axis.scatter(
         ra[center_index],

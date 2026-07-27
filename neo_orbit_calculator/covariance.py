@@ -15,7 +15,7 @@ import spiceypy as spice
 from scipy.interpolate import CubicSpline
 from scipy.optimize import minimize_scalar
 
-from .core import AU_KM, DAY_S, DE440Environment, ForceModel
+from .core import AU_KM, DAY_S, ForceModel, PlanetaryEnvironment
 from .fortran_backend import FortranIntegrator
 
 SBDB_API = "https://ssd-api.jpl.nasa.gov/sbdb.api"
@@ -186,7 +186,7 @@ def elements_to_barycentric_state(
     sample: np.ndarray,
     labels: tuple[str, ...],
     epoch_jd_tdb: float,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> np.ndarray:
     """Convert one SBDB covariance sample to a J2000 barycentric state."""
     values = dict(zip(labels, np.asarray(sample, dtype=float), strict=True))
@@ -269,7 +269,7 @@ def _refined_earth_approach(
     jd_tdb: np.ndarray,
     states: np.ndarray,
     earth_positions: np.ndarray,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> tuple[float, float]:
     distance = np.linalg.norm(states[:, :3] - earth_positions, axis=1)
     index = int(np.argmin(distance))
@@ -335,6 +335,7 @@ def propagate_virtual_asteroids(
     base_model: ForceModel | None = None,
     include_large_asteroids: bool = True,
     include_jupiter_system: bool = False,
+    ephemeris: str = "auto",
 ) -> VirtualAsteroidResult:
     """Propagate a complete correlated virtual-asteroid ensemble."""
     if stop_jd_tdb <= solution.epoch_jd_tdb:
@@ -342,8 +343,11 @@ def propagate_virtual_asteroids(
     if samples < 5:
         raise ValueError("samples must be at least 5.")
     ensemble = sample_virtual_asteroids(solution, clones, seed)
-    environment = DE440Environment(
+    environment = PlanetaryEnvironment(
         Path(kernel_dir),
+        start_jd_tdb=solution.epoch_jd_tdb,
+        stop_jd_tdb=stop_jd_tdb,
+        ephemeris=ephemeris,
         include_large_asteroids=include_large_asteroids,
         include_jupiter_system=include_jupiter_system,
     )
@@ -506,7 +510,8 @@ def propagate_virtual_asteroids(
         function_evaluations=evaluations,
         seed=seed,
         kernel=(
-            f"Fortran real{integrator.precision_digits} + DE440s"
+            f"Fortran real{integrator.precision_digits} + "
+            f"{environment.ephemeris_description}"
             + (
                 " + SB441-N16"
                 if environment.include_large_asteroids

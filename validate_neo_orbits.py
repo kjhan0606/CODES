@@ -23,8 +23,8 @@ from scipy.optimize import minimize_scalar
 from neo_orbit_calculator.core import (
     AU_KM,
     DAY_S,
-    DE440Environment,
     ForceModel,
+    PlanetaryEnvironment,
     propagate_custom,
 )
 from neo_orbit_calculator.jpl import horizons_elements, jpl_close_approaches
@@ -59,7 +59,7 @@ def _wrapped_angle_difference_deg(value: float, reference: float) -> float:
 def _osculating_elements(
     barycentric_state: np.ndarray,
     jd_tdb: float,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> dict[str, float]:
     et = environment.jd_to_et(jd_tdb)
     heliocentric = barycentric_state - environment.state("SUN", et)
@@ -85,7 +85,7 @@ def _osculating_elements(
 def _closest_approach(
     jd: np.ndarray,
     states: np.ndarray,
-    environment: DE440Environment,
+    environment: PlanetaryEnvironment,
 ) -> tuple[float, float]:
     earth_positions = np.asarray(
         [
@@ -151,8 +151,15 @@ def validate_case(
         validate_horizons=False,
         include_large_asteroids=True,
         backend="fortran",
+        ephemeris="de442",
     )
-    environment = DE440Environment(KERNEL_DIR, include_large_asteroids=True)
+    environment = PlanetaryEnvironment(
+        KERNEL_DIR,
+        start_jd_tdb=start_jd,
+        stop_jd_tdb=stop_jd,
+        ephemeris="de442",
+        include_large_asteroids=True,
+    )
     local_jd, local_distance_km = _closest_approach(
         result.jd_tdb, result.state_km_kms, environment
     )

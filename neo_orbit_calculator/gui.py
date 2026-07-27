@@ -265,6 +265,7 @@ class CODESApplication(tk.Tk):
             "a3": tk.StringVar(value="0"),
             "nongrav_law": tk.StringVar(value="inverse_square"),
             "outgassing_lag": tk.StringVar(value="0.0"),
+            "ephemeris": tk.StringVar(value="auto"),
             "output": tk.StringVar(value=str(DEFAULT_OUTPUT / "neo")),
         }
         ttk.Label(
@@ -360,6 +361,20 @@ class CODESApplication(tk.Tk):
             text="Resolved Jupiter system",
             variable=self.jupiter_system,
         ).grid(row=10, column=1, sticky="w", pady=(5, 0))
+        ttk.Label(tab, text="Planetary ephemeris").grid(
+            row=10,
+            column=2,
+            sticky="e",
+            padx=(0, 8),
+            pady=(5, 0),
+        )
+        ttk.Combobox(
+            tab,
+            textvariable=self.neo["ephemeris"],
+            values=("auto", "de442", "de441"),
+            state="readonly",
+            width=12,
+        ).grid(row=10, column=3, sticky="ew", pady=(5, 0))
 
         self._action_button(
             tab,
@@ -692,6 +707,8 @@ class CODESApplication(tk.Tk):
                 self.neo["output"].get().strip(),
                 "--kernel-dir",
                 str(Path(__file__).resolve().parent / "kernels"),
+                "--ephemeris",
+                self.neo["ephemeris"].get().strip(),
             ]
             if not self.relativity.get():
                 command.append("--no-relativity")
@@ -745,6 +762,8 @@ class CODESApplication(tk.Tk):
             self.neo["outgassing_lag"].get().strip(),
             "--backend",
             "fortran",
+            "--ephemeris",
+            self.neo["ephemeris"].get().strip(),
         ]
         if not self.relativity.get():
             command.append("--no-relativity")
@@ -832,6 +851,8 @@ class CODESApplication(tk.Tk):
                 self.historical["samples"].get().strip(),
                 "--field-radius",
                 self.historical["field_radius"].get().strip(),
+                "--kernel-dir",
+                str(Path(__file__).resolve().parent / "kernels"),
                 "--output-dir",
                 self.historical["output"].get().strip(),
             ]

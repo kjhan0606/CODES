@@ -1,0 +1,75 @@
+{
+  "designation": "1P",
+  "apparition_record": 90000027,
+  "observer": {
+    "name": "Hanyang, Gwansanggam reference site",
+    "longitude_deg_east": 126.978,
+    "latitude_deg": 37.5665,
+    "elevation_km": 0.05
+  },
+  "center_position": {
+    "epoch_utc": "1759-04-06T20:30:00.000",
+    "jd_utc": 2363617.3541666665,
+    "apparition_record": 90000027,
+    "ra_icrs_deg": 329.72881368,
+    "dec_icrs_deg": -9.650470171,
+    "ra_apparent_deg": 326.510939507,
+    "dec_apparent_deg": -10.791848942,
+    "azimuth_deg": 119.778093987,
+    "elevation_deg": 17.897941187,
+    "solar_elongation_deg": 51.6742,
+    "heliocentric_distance_au": 0.790292688643,
+    "observer_distance_au": 0.70243031435848,
+    "constellation": "Aquarius",
+    "codes_ra_icrs_deg": 329.72194296954905,
+    "codes_dec_icrs_deg": -9.651793173053465,
+    "codes_minus_jpl_arcmin": 0.4140878324107728,
+    "codes_ephemeris": "DE441",
+    "codes_kernel": "Fortran real33 arithmetic + JPL DE441 binary64 SPK (de441_part-1.bsp) + full multi-body 1PN + NAIF PCK J2/J4/J6",
+    "codes_coordinate_note": "CODES is geocentric geometric ICRS. JPL is topocentric ICRS."
+  },
+  "codes_validation": {
+    "ephemeris": "DE441",
+    "kernel": "Fortran real33 arithmetic + JPL DE441 binary64 SPK (de441_part-1.bsp) + full multi-body 1PN + NAIF PCK J2/J4/J6",
+    "coordinate_note": "CODES is geocentric geometric ICRS. JPL is topocentric ICRS.",
+    "center_codes_minus_jpl_arcmin": 0.4140878324107728,
+    "maximum_codes_minus_jpl_arcmin": 0.42175013730726085
+  },
+  "historical_record": {
+    "record_id": "joseon-halley-1759-03-11",
+    "title": "Joseon observation of 1P/Halley on lunar 1759 March 11",
+    "designation": "1P",
+    "center_epoch_utc": "1759-04-06T20:30:00",
+    "local_civil_date": "1759-04-07 near dawn",
+    "lunar_date": "1759-03-11",
+    "site": {
+      "name": "Hanyang, Gwansanggam reference site",
+      "longitude_deg_east": 126.978,
+      "latitude_deg": 37.5665,
+      "elevation_km": 0.05
+    },
+    "source_url": "https://www.kasi.re.kr/kor/publication/post/newsMaterial/29446",
+    "source_credit": "Seongbyeon Cheukhu Danja, Yonsei University Library. Digital image provided by the Korea Astronomy and Space Science Institute.",
+    "reported_mansion": "Xu lunar mansion",
+    "reported_asterism_relation": "north of the Liyu asterism",
+    "reported_north_polar_distance_deg": 116.0,
+    "note": "The raw north-polar-distance value is retained as documentary metadata. It is not included in the numerical score until the instrument scale, transcription, and epoch convention are calibrated from the full manuscript."
+  },
+  "constraint_evaluation": {
+    "record_id": "joseon-halley-1759-03-11",
+    "apparition_record": 90000027,
+    "epoch_utc": "1759-04-06T20:30:00.000",
+    "inside_xu_ra_interval": true,
+    "xu_ra_margin_deg": 1.7171677609479161,
+    "north_of_liyu": true,
+    "north_of_liyu_deg": 4.748428131812961,
+    "predicted_north_polar_distance_deg": 100.791848942,
+    "north_polar_distance_coordinate": "apparent equator of date",
+    "reported_north_polar_distance_raw_deg": 116.0,
+    "raw_north_polar_distance_residual_deg": -15.208151057999999,
+    "north_polar_distance_used_in_score": false,
+    "elevation_deg": 17.897941187,
+    "solar_elongation_deg": 51.6742,
+    "interpretation": "The raw north-polar-distance value is retained as documentary metadata. It is not included in the numerical score until the instrument scale, transcription, and epoch convention are calibrated from the full manuscript."
+  }
+}
